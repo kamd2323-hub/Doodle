@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useSupabase } from '@/hooks/use-supabase'
 import { 
   CheckCircle2, 
   XCircle, 
@@ -12,46 +13,107 @@ import {
   CreditCard, 
   Building2, 
   Link2, 
-  Unlink 
+  Unlink,
+  AlertCircle
 } from 'lucide-react'
 
-interface IntegrationStatus {
+interface ConnectionDetails {
   connected: boolean
   name: string
+  tenantName?: string
 }
 
 interface StatusResponse {
   integrations: {
-    stripe: IntegrationStatus
-    quickbooks: IntegrationStatus
+    stripe: ConnectionDetails
+    quickbooks: ConnectionDetails
   }
+}
+
+interface ConnectionData {
+  provider: string
+  status: string
+  tenant_name?: string
 }
 
 export default function SettingsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [status, setStatus] = useState<StatusResponse | null>(null)
+  const supabase = useSupabase()
+  
+  const [connections, setConnections] = useState<OAuthConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  // Fetch current integrations status
-  const fetchStatus = async () => {
+  // Fetch integration statuses from Supabase and local store
+  const fetchConnections = async () => {
     try {
-      const res = await fetch('/api/auth/status')
-      if (res.ok) {
-        const data = await res.json()
-        setStatus(data)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        // Query oauth connections
+        const { data, error } = await supabase
+          .from('oauth_connections')
+          .select('provider, status, tenant_name')
+          .eq('profile_id', user.id)
+
+        if (!error && data) {
+          setConnections(data)
+        } else {
+          // If Supabase fetch fails, try our local fallback API
+          const res = await fetch('/api/auth/status')
+          if (res.ok) {
+            const statusData = await res.json()
+            const fallbackConnections: OAuthConnection[] = []
+            if (statusData.integrations?.stripe?.connected) {
+              fallbackConnections.push({
+                provider: 'stripe',
+                status: 'active',
+                tenant_name: statusData.integrations.stripe.tenantName || 'Stripe Connected Account'
+              })
+            }
+            if (statusData.integrations?.quickbooks?.connected) {
+              fallbackConnections.push({
+                provider: 'quickbooks',
+                status: 'active',
+                tenant_name: statusData.integrations.quickbooks.tenantName || 'QuickBooks Online Company'
+              })
+            }
+            setConnections(fallbackConnections)
+          }
+        }
+      } else {
+        // If not logged in/mock environment, query our fallback API
+        const res = await fetch('/api/auth/status')
+        if (res.ok) {
+          const statusData = await res.json()
+          const fallbackConnections: OAuthConnection[] = []
+          if (statusData.integrations?.stripe?.connected) {
+            fallbackConnections.push({
+              provider: 'stripe',
+              status: 'active',
+              tenant_name: 'Stripe Mock Account'
+            })
+          }
+          if (statusData.integrations?.quickbooks?.connected) {
+            fallbackConnections.push({
+              provider: 'quickbooks',
+              status: 'active',
+              tenant_name: 'QuickBooks Sandbox Company'
+            })
+          }
+          setConnections(fallbackConnections)
+        }
       }
     } catch (err) {
-      console.error('Error fetching integrations status:', err)
+      console.error('Error fetching connections:', err)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchStatus()
+    fetchConnections()
 
     // Handle redirect alerts/notifications from URL parameters
     const integration = searchParams.get('integration')
@@ -71,8 +133,8 @@ export default function SettingsPage() {
 
   const handleConnect = (provider: 'stripe' | 'quickbooks') => {
     setActionLoading(provider)
-    // Redirect to redirect endpoint
-    window.location.href = `/api/auth/${provider}/connect`
+    // Redirect to redirect endpoint (accepts both `/api/auth/{provider}` and `/api/auth/${provider}/connect`)
+    window.location.href = `/api/auth/${provider}`
   }
 
   const handleDisconnect = async (provider: 'stripe' | 'quickbooks') => {
@@ -86,9 +148,9 @@ export default function SettingsPage() {
       if (res.ok && data.success) {
         setNotification({
           type: 'success',
-          message: data.message || `Disconnected ${provider === 'stripe' ? 'Stripe' : 'QuickBooks'}.`,
+          message: data.message || `Disconnected ${provider === 'stripe' ? 'Stripe' : 'QuickBooks Online'}.`,
         })
-        await fetchStatus()
+        await fetchConnections()
       } else {
         setNotification({
           type: 'error',
@@ -105,6 +167,16 @@ export default function SettingsPage() {
     }
   }
 
+  const getConnectionStatus = (provider: string) => {
+    const conn = connections.find(c => c.provider === provider)
+    return conn ? conn.status : 'disconnected'
+  }
+
+  const getTenantName = (provider: string) => {
+    const conn = connections.find(c => c.provider === provider)
+    return conn?.tenant_name
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -114,13 +186,18 @@ export default function SettingsPage() {
     )
   }
 
-  const stripe = status?.integrations.stripe
-  const quickbooks = status?.integrations.quickbooks
+  const stripeStatus = getConnectionStatus('stripe')
+  const stripeConnected = stripeStatus === 'active'
+  const stripeTenant = getTenantName('stripe')
+
+  const qboStatus = getConnectionStatus('quickbooks')
+  const qboConnected = qboStatus === 'active'
+  const qboTenant = getTenantName('quickbooks')
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto p-4 md:p-6">
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight">Settings & Integrations</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Settings & Integrations</h1>
         <p className="text-slate-500">
           Manage your account connections, invoicing sources, and dunning integrations.
         </p>
@@ -157,18 +234,30 @@ export default function SettingsPage() {
                   <CardDescription>Sync Stripe invoices & charges</CardDescription>
                 </div>
               </div>
-              <Badge variant={stripe?.connected ? 'default' : 'secondary'} className={stripe?.connected ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100' : ''}>
-                {stripe?.connected ? 'Connected' : 'Not Connected'}
+              <Badge variant={stripeConnected ? 'default' : 'secondary'} className={stripeConnected ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100' : ''}>
+                {stripeConnected ? 'Connected' : 'Not Connected'}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="flex-grow pb-6">
+          <CardContent className="flex-grow pb-6 space-y-4">
             <p className="text-sm text-slate-500 leading-relaxed">
               Connect your Stripe account to automatically import outstanding invoices, map customers, monitor payment events, and initiate smart dunning recovery runs.
             </p>
+            {stripeConnected && stripeTenant && (
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 text-sm">
+                <span className="font-semibold text-slate-700">Connected Account:</span>{' '}
+                <span className="text-slate-600 font-medium">{stripeTenant}</span>
+              </div>
+            )}
+            {stripeStatus === 'error' && (
+              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                Connection error. Please try reconnecting.
+              </div>
+            )}
           </CardContent>
           <CardFooter className="pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-end">
-            {stripe?.connected ? (
+            {stripeConnected ? (
               <Button
                 variant="outline"
                 className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
@@ -212,18 +301,30 @@ export default function SettingsPage() {
                   <CardDescription>Sync QuickBooks invoices & customers</CardDescription>
                 </div>
               </div>
-              <Badge variant={quickbooks?.connected ? 'default' : 'secondary'} className={quickbooks?.connected ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100' : ''}>
-                {quickbooks?.connected ? 'Connected' : 'Not Connected'}
+              <Badge variant={qboConnected ? 'default' : 'secondary'} className={qboConnected ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100' : ''}>
+                {qboConnected ? 'Connected' : 'Not Connected'}
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="flex-grow pb-6">
+          <CardContent className="flex-grow pb-6 space-y-4">
             <p className="text-sm text-slate-500 leading-relaxed">
               Integrate with QuickBooks Online to pull invoices, track customers, update transaction statuses, and automate reminders using your custom email sequences.
             </p>
+            {qboConnected && qboTenant && (
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 text-sm">
+                <span className="font-semibold text-slate-700">Connected Company:</span>{' '}
+                <span className="text-slate-600 font-medium">{qboTenant}</span>
+              </div>
+            )}
+            {qboStatus === 'error' && (
+              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                Connection error. Please try reconnecting.
+              </div>
+            )}
           </CardContent>
           <CardFooter className="pt-4 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex items-center justify-end">
-            {quickbooks?.connected ? (
+            {qboConnected ? (
               <Button
                 variant="outline"
                 className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
@@ -253,128 +354,14 @@ export default function SettingsPage() {
             )}
           </CardFooter>
         </Card>
-import { useState, useEffect } from 'react'
-import { useSupabase } from '@/hooks/use-supabase'
-import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+      </div>
+    </div>
+  )
+}
 
+// Compatibility interface types for local scopes
 interface OAuthConnection {
   provider: string
   status: string
   tenant_name?: string
-}
-
-export default function SettingsPage() {
-  const [connections, setConnections] = useState<OAuthConnection[]>([])
-  const [loading, setLoading] = useState(true)
-  const supabase = useSupabase()
-
-  useEffect(() => {
-    async function fetchConnections() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data, error } = await supabase
-          .from('oauth_connections')
-          .select('provider, status, tenant_name')
-          .eq('profile_id', user.id)
-
-        if (!error && data) {
-          setConnections(data)
-        }
-      }
-      setLoading(false)
-    }
-
-    fetchConnections()
-  }, [supabase])
-
-  const getConnectionStatus = (provider: string) => {
-    const conn = connections.find(c => c.provider === provider)
-    return conn ? conn.status : 'disconnected'
-  }
-
-  const getTenantName = (provider: string) => {
-    const conn = connections.find(c => c.provider === provider)
-    return conn?.tenant_name
-  }
-
-  const providers = [
-    {
-      id: 'stripe',
-      name: 'Stripe',
-      description: 'Connect your Stripe account to sync invoices and track payments.',
-      authUrl: '/api/auth/stripe',
-    },
-    {
-      id: 'quickbooks',
-      name: 'QuickBooks',
-      description: 'Connect your QuickBooks account to sync your business invoices.',
-      authUrl: '/api/auth/qbo',
-    }
-  ]
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Settings</h1>
-        <p className="text-slate-500">Manage your account and service integrations.</p>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {providers.map((provider) => {
-          const status = getConnectionStatus(provider.id)
-          const tenantName = getTenantName(provider.id)
-          const isConnected = status === 'active'
-
-          return (
-            <Card key={provider.id} className="flex flex-col">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-xl">{provider.name}</CardTitle>
-                  {loading ? (
-                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-                  ) : isConnected ? (
-                    <Badge className="bg-green-100 text-green-700 border-green-200">
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> Connected
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200">
-                      <XCircle className="mr-1 h-3 w-3" /> Disconnected
-                    </Badge>
-                  )}
-                </div>
-                <CardDescription>{provider.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1">
-                {isConnected && tenantName && (
-                  <div className="mt-2 text-sm text-slate-600">
-                    <span className="font-medium">Connected Account:</span> {tenantName}
-                  </div>
-                )}
-                {status === 'error' && (
-                  <div className="mt-2 flex items-center text-sm text-red-600">
-                    <AlertCircle className="mr-1 h-4 w-4" />
-                    Connection error. Please try reconnecting.
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="border-t bg-slate-50/50 px-6 py-4">
-                <Button 
-                  asChild 
-                  className="w-full"
-                  variant={isConnected ? "outline" : "default"}
-                >
-                  <a href={provider.authUrl}>
-                    {isConnected ? 'Reconnect' : `Connect to ${provider.name}`}
-                  </a>
-                </Button>
-              </CardFooter>
-            </Card>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
