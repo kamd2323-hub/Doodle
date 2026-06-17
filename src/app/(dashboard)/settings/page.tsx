@@ -30,7 +30,7 @@ interface StatusResponse {
   }
 }
 
-interface ConnectionData {
+interface OAuthConnection {
   provider: string
   status: string
   tenant_name?: string
@@ -46,64 +46,33 @@ export default function SettingsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  // Fetch integration statuses from Supabase and local store
+  // Fetch integration statuses from our internal API
   const fetchConnections = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // Query oauth connections
-        const { data, error } = await supabase
-          .from('oauth_connections')
-          .select('provider, status, tenant_name')
-          .eq('profile_id', user.id)
-
-        if (!error && data) {
-          setConnections(data)
-        } else {
-          // If Supabase fetch fails, try our local fallback API
-          const res = await fetch('/api/auth/status')
-          if (res.ok) {
-            const statusData = await res.json()
-            const fallbackConnections: OAuthConnection[] = []
-            if (statusData.integrations?.stripe?.connected) {
-              fallbackConnections.push({
-                provider: 'stripe',
-                status: 'active',
-                tenant_name: statusData.integrations.stripe.tenantName || 'Stripe Connected Account'
-              })
-            }
-            if (statusData.integrations?.quickbooks?.connected) {
-              fallbackConnections.push({
-                provider: 'quickbooks',
-                status: 'active',
-                tenant_name: statusData.integrations.quickbooks.tenantName || 'QuickBooks Online Company'
-              })
-            }
-            setConnections(fallbackConnections)
-          }
+      const res = await fetch('/api/auth/status')
+      if (res.ok) {
+        const statusData: StatusResponse = await res.json()
+        const newConnections: OAuthConnection[] = []
+        
+        if (statusData.integrations.stripe.connected) {
+          newConnections.push({
+            provider: 'stripe',
+            status: 'active',
+            tenant_name: statusData.integrations.stripe.tenantName || 'Stripe Account'
+          })
         }
+        
+        if (statusData.integrations.quickbooks.connected) {
+          newConnections.push({
+            provider: 'quickbooks',
+            status: 'active',
+            tenant_name: statusData.integrations.quickbooks.tenantName || 'QuickBooks Company'
+          })
+        }
+        
+        setConnections(newConnections)
       } else {
-        // If not logged in/mock environment, query our fallback API
-        const res = await fetch('/api/auth/status')
-        if (res.ok) {
-          const statusData = await res.json()
-          const fallbackConnections: OAuthConnection[] = []
-          if (statusData.integrations?.stripe?.connected) {
-            fallbackConnections.push({
-              provider: 'stripe',
-              status: 'active',
-              tenant_name: 'Stripe Mock Account'
-            })
-          }
-          if (statusData.integrations?.quickbooks?.connected) {
-            fallbackConnections.push({
-              provider: 'quickbooks',
-              status: 'active',
-              tenant_name: 'QuickBooks Sandbox Company'
-            })
-          }
-          setConnections(fallbackConnections)
-        }
+        console.error('Failed to fetch connection status')
       }
     } catch (err) {
       console.error('Error fetching connections:', err)
@@ -118,6 +87,7 @@ export default function SettingsPage() {
     // Handle redirect alerts/notifications from URL parameters
     const integration = searchParams.get('integration')
     const statusParam = searchParams.get('status')
+    const errorParam = searchParams.get('error')
 
     if (statusParam === 'success' && integration) {
       const name = integration === 'stripe' ? 'Stripe' : 'QuickBooks Online'
@@ -125,16 +95,20 @@ export default function SettingsPage() {
         type: 'success',
         message: `Successfully connected to ${name}! Your invoices are now syncing.`,
       })
-      
-      // Clean up URL parameters to avoid repeating alerts on reload
+      router.replace('/settings')
+    } else if (statusParam === 'error' || errorParam) {
+      setNotification({
+        type: 'error',
+        message: errorParam || 'Failed to complete connection. Please try again.',
+      })
       router.replace('/settings')
     }
   }, [searchParams, router])
 
   const handleConnect = (provider: 'stripe' | 'quickbooks') => {
     setActionLoading(provider)
-    // Redirect to redirect endpoint (accepts both `/api/auth/{provider}` and `/api/auth/${provider}/connect`)
-    window.location.href = `/api/auth/${provider}`
+    // Redirect to the connect endpoint
+    window.location.href = `/api/auth/${provider}/connect`
   }
 
   const handleDisconnect = async (provider: 'stripe' | 'quickbooks') => {
@@ -357,11 +331,4 @@ export default function SettingsPage() {
       </div>
     </div>
   )
-}
-
-// Compatibility interface types for local scopes
-interface OAuthConnection {
-  provider: string
-  status: string
-  tenant_name?: string
 }
