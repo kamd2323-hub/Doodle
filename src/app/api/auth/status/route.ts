@@ -22,18 +22,29 @@ export async function GET(request: Request) {
     // Default status
     let stripeConnected = false
     let quickbooksConnected = false
+    let stripeTenantName = ''
+    let quickbooksTenantName = ''
 
     // 1. Try to read from Supabase if configured
     if (supabase && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your-supabase-url') {
       try {
         const { data, error } = await supabase
           .from('oauth_connections')
-          .select('provider')
+          .select('provider, tenant_name')
           .eq('profile_id', userId)
 
         if (!error && data) {
-          stripeConnected = data.some((conn: any) => conn.provider === 'stripe')
-          quickbooksConnected = data.some((conn: any) => conn.provider === 'quickbooks')
+          const stripeConn = data.find((conn: any) => conn.provider === 'stripe')
+          const qboConn = data.find((conn: any) => conn.provider === 'quickbooks')
+          
+          if (stripeConn) {
+            stripeConnected = true
+            stripeTenantName = stripeConn.tenant_name
+          }
+          if (qboConn) {
+            quickbooksConnected = true
+            quickbooksTenantName = qboConn.tenant_name
+          }
         }
       } catch (err) {
         console.warn('Supabase fetch failed in status API, falling back to local storage:', err)
@@ -47,11 +58,16 @@ export async function GET(request: Request) {
         const connections = JSON.parse(fileContent)
         const userConnections = connections.filter((c: any) => c.profile_id === userId)
         
-        if (userConnections.some((c: any) => c.provider === 'stripe')) {
+        const stripeMock = userConnections.find((c: any) => c.provider === 'stripe')
+        if (stripeMock) {
           stripeConnected = true
+          stripeTenantName = stripeMock.tenant_name || stripeTenantName
         }
-        if (userConnections.some((c: any) => c.provider === 'quickbooks')) {
+        
+        const qboMock = userConnections.find((c: any) => c.provider === 'quickbooks')
+        if (qboMock) {
           quickbooksConnected = true
+          quickbooksTenantName = qboMock.tenant_name || quickbooksTenantName
         }
       } catch (err) {
         console.error('Error reading fallback store in status API:', err)
@@ -63,10 +79,12 @@ export async function GET(request: Request) {
         stripe: {
           connected: stripeConnected,
           name: 'Stripe',
+          tenantName: stripeTenantName,
         },
         quickbooks: {
           connected: quickbooksConnected,
           name: 'QuickBooks Online',
+          tenantName: quickbooksTenantName,
         }
       }
     })
