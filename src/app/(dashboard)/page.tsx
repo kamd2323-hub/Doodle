@@ -5,7 +5,8 @@ import {
   BarChart3, 
   ArrowUpRight,
   Activity,
-  AlertCircle
+  AlertCircle,
+  Mail
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase-server'
 import { format } from 'date-fns'
