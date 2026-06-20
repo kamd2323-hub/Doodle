@@ -29,9 +29,20 @@ export async function sendDunningEmail({
 }: SendDunningEmailParams) {
   const supabase = await createClient();
 
+  // 0. Fetch branding info from profile associated with the campaign
+  const { data: campaignData } = await supabase
+    .from('dunning_campaigns')
+    .select('profile:profiles(organization_name, default_from_name)')
+    .eq('id', campaignId)
+    .single();
+
+  const branding = (campaignData as any)?.profile;
+  const fromName = branding?.default_from_name || branding?.organization_name || 'Reclaim AI';
+
   // Determine the 'from' address. 
   // Note: In production, this should be a verified domain.
-  const fromEmail = process.env.FROM_EMAIL || 'Reclaim AI <onboarding@resend.dev>';
+  const fromAddress = process.env.FROM_EMAIL_ADDRESS || 'onboarding@resend.dev';
+  const fromEmail = `${fromName} <${fromAddress}>`;
 
   try {
     // 1. Send the email via Resend

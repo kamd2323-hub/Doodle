@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase-server'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { SystemStatusBadge } from '@/components/dashboard/system-status'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -146,14 +147,17 @@ export default async function DashboardPage() {
               : 'Welcome back to Reclaim AI.'}
           </p>
         </div>
-        {!hasIntegrations && (
-          <Button asChild variant="outline" className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900">
-            <Link href="/settings">
-              <AlertCircle className="mr-2 h-4 w-4" />
-              Connect Integration
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-4">
+          <SystemStatusBadge />
+          {!hasIntegrations && (
+            <Button asChild variant="outline" className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900">
+              <Link href="/settings">
+                <AlertCircle className="mr-2 h-4 w-4" />
+                Connect Integration
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {!hasIntegrations ? (

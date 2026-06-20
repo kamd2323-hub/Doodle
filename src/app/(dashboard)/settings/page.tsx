@@ -58,6 +58,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [configStatus, setConfigStatus] = useState<{ openai: boolean; resend: boolean } | null>(null)
 
   const [profile, setProfile] = useState({
     organization_name: '',
@@ -70,6 +71,13 @@ export default function SettingsPage() {
   // Fetch integration statuses and profile data
   const fetchData = async () => {
     try {
+      // Fetch Config Status
+      const configRes = await fetch('/api/config/status')
+      if (configRes.ok) {
+        const configData = await configRes.json()
+        setConfigStatus(configData.config)
+      }
+
       // Fetch OAuth connections
       const res = await fetch('/api/auth/status')
       if (res.ok) {
@@ -269,6 +277,78 @@ export default function SettingsPage() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Recovery Engine Configuration Card */}
+        <Card className="md:col-span-2 border border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                <Activity className="h-6 w-6" />
+              </div>
+              <div>
+                <CardTitle className="text-xl font-bold">Recovery Engine Status</CardTitle>
+                <CardDescription>Check the readiness of your AI and Communication services</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${configStatus?.openai ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">OpenAI API</span>
+                </div>
+                <Badge variant={configStatus?.openai ? 'default' : 'secondary'}>
+                  {configStatus?.openai ? 'Verified' : 'Not Set'}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${configStatus?.resend ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">Resend API</span>
+                </div>
+                <Badge variant={configStatus?.resend ? 'default' : 'secondary'}>
+                  {configStatus?.resend ? 'Verified' : 'Not Set'}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${stripeConnected || qboConnected ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">Active Data Link</span>
+                </div>
+                <Badge variant={stripeConnected || qboConnected ? 'default' : 'secondary'}>
+                  {stripeConnected || qboConnected ? 'Connected' : 'Missing'}
+                </Badge>
+              </div>
+            </div>
+            
+            {!configStatus?.openai || !configStatus?.resend ? (
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-100 rounded-lg flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-semibold">Setup Required for Recovery</p>
+                  <p>Your recovery engine is currently in "Setup Mode". Please provide your OpenAI and Resend API keys in the environment configuration to enable AI-powered recovery.</p>
+                </div>
+              </div>
+            ) : (stripeConnected || qboConnected) && (
+              <div className="mt-6 p-4 bg-emerald-50 border border-emerald-100 rounded-lg flex items-start gap-3">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-emerald-800">
+                  <p className="font-semibold">System is Live</p>
+                  <p>Your recovery engine is fully configured and ready to process outstanding invoices automatically.</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Branding & Profile Card */}
         <Card className="md:col-span-2 border border-slate-200 shadow-sm overflow-hidden">
           <CardHeader className="bg-slate-50/50 border-b border-slate-100">

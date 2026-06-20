@@ -20,6 +20,13 @@ export interface InvoiceData {
   payment_link?: string | null;
 }
 
+export interface BrandingData {
+  organization_name?: string | null;
+  logo_url?: string | null;
+  default_from_name?: string | null;
+  global_tone_preference?: string | null;
+}
+
 export interface PersonalizationResult {
   subject: string;
   body: string;
@@ -32,7 +39,8 @@ export interface PersonalizationResult {
 export function personalizeFallback(
   template: TemplateData,
   invoice: InvoiceData,
-  client: ClientData
+  client: ClientData,
+  branding?: BrandingData
 ): PersonalizationResult {
   const amountFormatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -52,6 +60,8 @@ export function personalizeFallback(
     '{{amount_due}}': amountFormatted,
     '{{due_date}}': dueDateFormatted,
     '{{payment_link}}': invoice.payment_link || 'our secure payment portal',
+    '{{organization_name}}': branding?.organization_name || 'our company',
+    '{{from_name}}': branding?.default_from_name || branding?.organization_name || 'Finance Team',
   };
 
   let subject = template.email_subject;
@@ -73,7 +83,8 @@ export function personalizeFallback(
 export async function personalizeEmail(
   template: TemplateData,
   invoice: InvoiceData,
-  client: ClientData
+  client: ClientData,
+  branding?: BrandingData
 ): Promise<PersonalizationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   const isMock = !apiKey || 
@@ -83,7 +94,7 @@ export async function personalizeEmail(
 
   if (isMock) {
     console.log('[AIEngine] OpenAI API Key is mock or placeholder. Switching to high-performance local template engine fallback.');
-    return personalizeFallback(template, invoice, client);
+    return personalizeFallback(template, invoice, client, branding);
   }
 
   try {
@@ -100,10 +111,18 @@ export async function personalizeEmail(
       day: 'numeric',
     });
 
+    const toneInstruction = branding?.global_tone_preference 
+      ? `Apply a ${branding.global_tone_preference} tone to the communication.`
+      : 'Maintain a professional but firm tone.';
+
     const systemPrompt = `You are Reclaim AI's senior automated billing communications specialist. Your goal is to customize payment recovery emails to be professional, clear, respectful, but firm.
 
 ### TASK:
-Your task is to take a subject and body template (which may contain placeholders like {{customer_name}}, {{amount_due}}, {{due_date}}, {{invoice_number}}, etc.) and replace them with the concrete client and invoice data provided. Optionally, make subtle tone refinements to make sure the email is professional but clear about the outstanding balance.
+Your task is to take a subject and body template (which may contain placeholders like {{customer_name}}, {{amount_due}}, {{due_date}}, {{invoice_number}}, etc.) and replace them with the concrete client and invoice data provided. Optionally, make subtle tone refinements to make sure the email is professional but clear about the outstanding balance. ${toneInstruction}
+
+### BRANDING CONTEXT:
+Organization Name: ${branding?.organization_name || 'Reclaim AI User'}
+${branding?.logo_url ? `Logo URL: ${branding.logo_url}` : ''}
 
 ### IMPORTANT ETHICAL & HONESTY GUIDELINES:
 1. **Never deceive**: State facts truthfully. Do not lie or invent late fees, interest penalties, legal threats, or actions that aren't verified in the data.
