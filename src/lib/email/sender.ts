@@ -7,6 +7,8 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 interface SendDunningEmailParams {
   profileId: string;
   invoiceId: string;
+  campaignId: string;
+  stepId: string;
   to: string;
   subject: string;
   body: string;
@@ -21,6 +23,8 @@ interface SendDunningEmailParams {
 export async function sendDunningEmail({
   profileId,
   invoiceId,
+  campaignId,
+  stepId,
   to,
   subject,
   body,
@@ -47,7 +51,8 @@ export async function sendDunningEmail({
       await supabase
         .from('dunning_email_logs')
         .insert({
-          profile_id: profileId,
+          campaign_id: campaignId,
+          step_id: stepId,
           invoice_id: invoiceId,
           recipient_email: to,
           sent_subject: subject,
@@ -64,14 +69,15 @@ export async function sendDunningEmail({
     const { error: logError } = await supabase
       .from('dunning_email_logs')
       .insert({
-        profile_id: profileId,
+        campaign_id: campaignId,
+        step_id: stepId,
         invoice_id: invoiceId,
         recipient_email: to,
         sent_subject: subject,
         sent_body: body,
         status: 'sent',
         sent_at: new Date().toISOString(),
-        resend_id: data?.id,
+        provider_message_id: data?.id,
       });
 
     if (logError) {
@@ -88,7 +94,8 @@ export async function sendDunningEmail({
       await supabase
         .from('dunning_email_logs')
         .insert({
-          profile_id: profileId,
+          campaign_id: campaignId,
+          step_id: stepId,
           invoice_id: invoiceId,
           recipient_email: to,
           sent_subject: subject,
