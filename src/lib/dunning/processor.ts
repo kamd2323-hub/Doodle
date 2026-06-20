@@ -295,3 +295,185 @@ export async function processDunningCampaigns(): Promise<ProcessResult> {
   console.log(`[DunningProcessor] Completed campaign processing run. Success: ${result.successCount}, Failed: ${result.failedCount}`);
   return result;
 }
+
+/**
+ * Automatically stops any active dunning campaigns for an invoice when a payment is received,
+ * updates the invoice status to 'paid', and logs a recovery record.
+ * 
+ * @param provider {'stripe' | 'quickbooks'} - The payment provider
+ * @param providerInvoiceId {string} - The provider's invoice identifier
+ * @param transactionId {string} - Optional transaction or payment intent/charge ID
+ * @param amountPaidCents {number} - Optional amount paid in cents
+ */
+export async function handleInvoicePaid(
+  provider: 'stripe' | 'quickbooks',
+  providerInvoiceId: string,
+  transactionId?: string,
+  amountPaidCents?: number
+) {
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  console.log(`[WebhookHandler] Processing payment for ${provider} invoice ${providerInvoiceId}`);
+
+  // 1. Find the invoice in the database
+  const { data: invoice, error: invoiceError } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('provider', provider)
+    .eq('provider_invoice_id', providerInvoiceId)
+    .single();
+
+  if (invoiceError || !invoice) {
+    console.error(`[WebhookHandler] Invoice not found for ${provider} id ${providerInvoiceId}:`, invoiceError);
+    return { success: false, error: 'Invoice not found' };
+  }
+
+  // 2. Update the invoice status in the database to 'paid'
+  const paidCents = amountPaidCents !== undefined ? amountPaidCents : invoice.amount_due_cents;
+  const { error: updateInvoiceError } = await supabase
+    .from('invoices')
+    .update({
+      status: 'paid',
+      amount_paid_cents: paidCents,
+      amount_due_cents: 0,
+      paid_at: now,
+      updated_at: now,
+    })
+    .eq('id', invoice.id);
+
+  if (updateInvoiceError) {
+    console.error(`[WebhookHandler] Failed to update invoice ${invoice.id} to paid:`, updateInvoiceError);
+  }
+
+  // 3. Find any active dunning campaign associated with this invoice
+  const { data: campaign, error: campaignError } = await supabase
+    .from('dunning_campaigns')
+    .select('*')
+    .eq('invoice_id', invoice.id)
+    .eq('status', 'active')
+    .single();
+
+  if (campaignError || !campaign) {
+    console.log(`[WebhookHandler] No active dunning campaign found for invoice ${invoice.id}. No dunning to stop.`);
+    return { success: true, details: 'Invoice updated to paid, no active campaign was running' };
+  }
+
+  // 4. Mark the campaign as 'recovered' and disable future actions
+  const { error: updateCampaignError } = await supabase
+    .from('dunning_campaigns')
+    .update({
+      status: 'recovered',
+      next_action_at: null,
+      updated_at: now,
+    })
+    .eq('id', campaign.id);
+
+  if (updateCampaignError) {
+    console.error(`[WebhookHandler] Failed to mark campaign ${campaign.id} as recovered:`, updateCampaignError);
+  }
+
+  // 5. Log the recovery event in the recoveries table
+  const { error: recoveryError } = await supabase
+    .from('recoveries')
+    .insert({
+      profile_id: campaign.profile_id,
+      invoice_id: invoice.id,
+      campaign_id: campaign.id,
+      amount_recovered_cents: paidCents,
+      currency: invoice.currency || 'USD',
+      payment_provider: provider,
+      transaction_id: transactionId || null,
+      recovered_at: now,
+    });
+
+  if (recoveryError) {
+    console.error(`[WebhookHandler] Failed to log recovery for campaign ${campaign.id}:`, recoveryError);
+  }
+
+  console.log(`[WebhookHandler] Successfully stopped dunning campaign ${campaign.id} and recorded recovery for invoice ${invoice.id}.`);
+  return { success: true, campaignId: campaign.id, invoiceId: invoice.id };
+}
+
+/**
+ * Scans for any active dunning campaigns where the associated invoice has been marked as 'paid',
+ * and resolves/stops those campaigns and logs the recovery. This handles cases where invoices
+ * are updated to 'paid' via sync engine runs or manual updates rather than direct webhooks.
+ */
+export async function autoResolvePaidCampaigns() {
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  console.log('[DunningProcessor] Running auto-resolve for paid campaigns...');
+
+  // 1. Get all active campaigns and join with their invoices
+  const { data: activeCampaigns, error } = await supabase
+    .from('dunning_campaigns')
+    .select(`
+      id,
+      profile_id,
+      invoice_id,
+      invoices!inner (
+        id,
+        status,
+        amount_paid_cents,
+        amount_due_cents,
+        currency,
+        provider,
+        provider_invoice_id
+      )
+    `)
+    .eq('status', 'active');
+
+  if (error) {
+    console.error('[DunningProcessor] Failed to fetch active campaigns for auto-resolve:', error);
+    return { success: false, error };
+  }
+
+  let resolvedCount = 0;
+
+  for (const campaign of (activeCampaigns || [])) {
+    const invoice = campaign.invoices as any;
+    if (invoice && (invoice.status === 'paid' || invoice.amount_due_cents <= 0)) {
+      console.log(`[DunningProcessor] Campaign ${campaign.id} has paid invoice ${invoice.id}. Auto-resolving...`);
+
+      // Mark the campaign as 'recovered' and disable future actions
+      await supabase
+        .from('dunning_campaigns')
+        .update({
+          status: 'recovered',
+          next_action_at: null,
+          updated_at: now,
+        })
+        .eq('id', campaign.id);
+
+      // Log recovery if not already logged
+      const { data: existingRecovery } = await supabase
+        .from('recoveries')
+        .select('id')
+        .eq('campaign_id', campaign.id)
+        .maybeSingle();
+
+      if (!existingRecovery) {
+        await supabase
+          .from('recoveries')
+          .insert({
+            profile_id: campaign.profile_id,
+            invoice_id: invoice.id,
+            campaign_id: campaign.id,
+            amount_recovered_cents: invoice.amount_paid_cents || 0,
+            currency: invoice.currency || 'USD',
+            payment_provider: invoice.provider || 'unknown',
+            recovered_at: now,
+          });
+      }
+
+      resolvedCount++;
+    }
+  }
+
+  console.log(`[DunningProcessor] Auto-resolve complete. Resolved ${resolvedCount} paid campaigns.`);
+  return { success: true, resolvedCount };
+}
+
+
