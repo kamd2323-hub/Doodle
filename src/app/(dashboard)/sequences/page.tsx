@@ -51,6 +51,21 @@ export default function SequencesPage() {
   const [stepsLoading, setStepsLoading] = useState(false)
   const [editingStep, setEditingStep] = useState<Partial<SequenceStep> | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+
+  const sampleData = {
+    customer_name: 'John Doe',
+    invoice_number: 'INV-2024-001',
+    amount_due: '$1,250.00'
+  }
+
+  const replacePlaceholders = (text: string) => {
+    let result = text
+    result = result.replace(/\{\{customer_name\}\}/g, sampleData.customer_name)
+    result = result.replace(/\{\{invoice_number\}\}/g, sampleData.invoice_number)
+    result = result.replace(/\{\{amount_due\}\}/g, sampleData.amount_due)
+    return result
+  }
 
   const fetchSequences = useCallback(async () => {
     setLoading(true)
@@ -316,51 +331,90 @@ export default function SequencesPage() {
           <div className="w-full max-w-2xl bg-white rounded-xl shadow-xl overflow-hidden">
             <div className="flex items-center justify-between border-b px-6 py-4 bg-slate-50">
               <h3 className="text-lg font-semibold">{editingStep.id ? 'Edit Step' : 'Add New Step'}</h3>
-              <button onClick={() => setEditingStep(null)} className="text-slate-400 hover:text-slate-600">
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setShowPreview(!showPreview)}
+                  className={`text-sm font-medium px-3 py-1 rounded-full transition-colors ${
+                    showPreview ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {showPreview ? 'Edit Template' : 'Preview Email'}
+                </button>
+                <button onClick={() => { setEditingStep(null); setShowPreview(false); }} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Step Number</label>
-                  <Input 
-                    type="number" 
-                    value={editingStep.step_number} 
-                    onChange={(e) => setEditingStep({...editingStep, step_number: parseInt(e.target.value)})}
-                  />
+              {!showPreview ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700">Step Number</label>
+                      <Input 
+                        type="number" 
+                        value={editingStep.step_number} 
+                        onChange={(e) => setEditingStep({...editingStep, step_number: parseInt(e.target.value)})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700">Delay (Days)</label>
+                      <Input 
+                        type="number" 
+                        value={editingStep.delay_days} 
+                        onChange={(e) => setEditingStep({...editingStep, delay_days: parseInt(e.target.value)})}
+                      />
+                      <p className="text-[10px] text-slate-400">Wait time since previous step.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Email Subject</label>
+                    <Input 
+                      value={editingStep.email_subject} 
+                      onChange={(e) => setEditingStep({...editingStep, email_subject: e.target.value})}
+                      placeholder="e.g. Reminder: Your payment is overdue"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">Email Body</label>
+                    <textarea 
+                      className="flex min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      value={editingStep.email_body} 
+                      onChange={(e) => setEditingStep({...editingStep, email_body: e.target.value})}
+                      placeholder="Write your email template here... (Markdown supported)"
+                    />
+                    <p className="text-[10px] text-slate-400">Placeholders: {"{{customer_name}}, {{invoice_number}}, {{amount_due}}"}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="rounded-lg border bg-slate-50 p-4 space-y-3">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Subject</span>
+                      <p className="text-slate-900 font-medium">{replacePlaceholders(editingStep.email_subject || '') || '(No subject)'}</p>
+                    </div>
+                    <hr className="border-slate-200" />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Body</span>
+                      <div className="text-slate-700 whitespace-pre-wrap mt-2 prose prose-sm max-w-none">
+                        {replacePlaceholders(editingStep.email_body || '') || '(No content)'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-100 rounded-md p-3 flex items-start gap-3">
+                    <div className="bg-amber-100 p-1 rounded">
+                      <Clock className="h-4 w-4 text-amber-700" />
+                    </div>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      This is a preview using sample data. When sent to a real customer, 
+                      the placeholders will be replaced with their actual invoice details.
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Delay (Days)</label>
-                  <Input 
-                    type="number" 
-                    value={editingStep.delay_days} 
-                    onChange={(e) => setEditingStep({...editingStep, delay_days: parseInt(e.target.value)})}
-                  />
-                  <p className="text-[10px] text-slate-400">Wait time since previous step.</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Email Subject</label>
-                <Input 
-                  value={editingStep.email_subject} 
-                  onChange={(e) => setEditingStep({...editingStep, email_subject: e.target.value})}
-                  placeholder="e.g. Reminder: Your payment is overdue"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-700">Email Body</label>
-                <textarea 
-                  className="flex min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  value={editingStep.email_body} 
-                  onChange={(e) => setEditingStep({...editingStep, email_body: e.target.value})}
-                  placeholder="Write your email template here... (Markdown supported)"
-                />
-                <p className="text-[10px] text-slate-400">Placeholders: {"{{customer_name}}, {{invoice_number}}, {{amount_due}}"}</p>
-              </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-3 border-t px-6 py-4 bg-slate-50">
-              <Button variant="ghost" onClick={() => setEditingStep(null)} disabled={isSaving}>Cancel</Button>
+              <Button variant="ghost" onClick={() => { setEditingStep(null); setShowPreview(false); }} disabled={isSaving}>Cancel</Button>
               <Button onClick={handleSaveStep} className="bg-indigo-600 hover:bg-indigo-700" disabled={isSaving}>
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {editingStep.id ? 'Update Step' : 'Create Step'}

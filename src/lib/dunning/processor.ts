@@ -47,6 +47,12 @@ export async function processDunningCampaigns(): Promise<ProcessResult> {
       last_step_number,
       last_communication_at,
       next_action_at,
+      profile:profiles (
+        organization_name,
+        logo_url,
+        default_from_name,
+        global_tone_preference
+      ),
       invoice:invoices (
         id,
         invoice_number,
@@ -92,6 +98,7 @@ export async function processDunningCampaigns(): Promise<ProcessResult> {
     const castCampaign = campaign as any;
     const invoice = castCampaign.invoice;
     const sequence = castCampaign.sequence;
+    const branding = castCampaign.profile;
 
     if (!invoice || !invoice.client) {
       console.warn(`[DunningProcessor] Campaign ${castCampaign.id} lacks valid invoice or client data. Skipping.`);
@@ -185,7 +192,14 @@ export async function processDunningCampaigns(): Promise<ProcessResult> {
         company_name: invoice.client.company_name,
       };
 
-      const personalized = await personalizeEmail(template, invoiceData, clientData);
+      const brandingData = {
+        organization_name: branding?.organization_name,
+        logo_url: branding?.logo_url,
+        default_from_name: branding?.default_from_name,
+        global_tone_preference: branding?.global_tone_preference,
+      };
+
+      const personalized = await personalizeEmail(template, invoiceData, clientData, brandingData);
 
       // 5. Dispatch the email via our Outbound Email Service
       const sendResult = await sendDunningEmail({

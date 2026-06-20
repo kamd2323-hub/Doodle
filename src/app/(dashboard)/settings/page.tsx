@@ -14,8 +14,21 @@ import {
   Building2, 
   Link2, 
   Unlink,
-  AlertCircle
+  AlertCircle,
+  Settings as SettingsIcon,
+  Globe,
+  Palette,
+  Save
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select'
 
 interface ConnectionDetails {
   connected: boolean
@@ -45,10 +58,27 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [configStatus, setConfigStatus] = useState<{ openai: boolean; resend: boolean } | null>(null)
 
-  // Fetch integration statuses from our internal API
-  const fetchConnections = async () => {
+  const [profile, setProfile] = useState({
+    organization_name: '',
+    logo_url: '',
+    default_from_name: '',
+    global_tone_preference: 'polite'
+  })
+  const [profileSaving, setProfileSaving] = useState(false)
+
+  // Fetch integration statuses and profile data
+  const fetchData = async () => {
     try {
+      // Fetch Config Status
+      const configRes = await fetch('/api/config/status')
+      if (configRes.ok) {
+        const configData = await configRes.json()
+        setConfigStatus(configData.config)
+      }
+
+      // Fetch OAuth connections
       const res = await fetch('/api/auth/status')
       if (res.ok) {
         const statusData: StatusResponse = await res.json()
@@ -71,18 +101,35 @@ export default function SettingsPage() {
         }
         
         setConnections(newConnections)
-      } else {
-        console.error('Failed to fetch connection status')
+      }
+
+      // Fetch Profile Data
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('organization_name, business_name, logo_url, default_from_name, global_tone_preference')
+          .eq('id', user.id)
+          .single()
+
+        if (profileData) {
+          setProfile({
+            organization_name: profileData.organization_name || profileData.business_name || '',
+            logo_url: profileData.logo_url || '',
+            default_from_name: profileData.default_from_name || '',
+            global_tone_preference: profileData.global_tone_preference || 'polite'
+          })
+        }
       }
     } catch (err) {
-      console.error('Error fetching connections:', err)
+      console.error('Error fetching data:', err)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchConnections()
+    fetchData()
 
     // Handle redirect alerts/notifications from URL parameters
     const integration = searchParams.get('integration')
@@ -109,6 +156,41 @@ export default function SettingsPage() {
     setActionLoading(provider)
     // Redirect to the connect endpoint
     window.location.href = `/api/auth/${provider}/connect`
+  }
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true)
+    setNotification(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          organization_name: profile.organization_name,
+          logo_url: profile.logo_url,
+          default_from_name: profile.default_from_name,
+          global_tone_preference: profile.global_tone_preference,
+          business_name: profile.organization_name // Sync business_name as well
+        })
+        .eq('id', user.id)
+
+      if (error) throw error
+
+      setNotification({
+        type: 'success',
+        message: 'Branding and profile settings saved successfully.'
+      })
+    } catch (err: any) {
+      console.error('Error saving profile:', err)
+      setNotification({
+        type: 'error',
+        message: err.message || 'Failed to save profile settings.'
+      })
+    } finally {
+      setProfileSaving(false)
+    }
   }
 
   const handleDisconnect = async (provider: 'stripe' | 'quickbooks') => {
@@ -195,6 +277,165 @@ export default function SettingsPage() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Recovery Engine Configuration Card */}
+        <Card className="md:col-span-2 border border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                <Activity className="h-6 w-6" />
+              </div>
+              <div>
+                <CardTitle className="text-xl font-bold">Recovery Engine Status</CardTitle>
+                <CardDescription>Check the readiness of your AI and Communication services</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${configStatus?.openai ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">OpenAI API</span>
+                </div>
+                <Badge variant={configStatus?.openai ? 'default' : 'secondary'}>
+                  {configStatus?.openai ? 'Verified' : 'Not Set'}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${configStatus?.resend ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">Resend API</span>
+                </div>
+                <Badge variant={configStatus?.resend ? 'default' : 'secondary'}>
+                  {configStatus?.resend ? 'Verified' : 'Not Set'}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between p-4 bg-white border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-full ${stripeConnected || qboConnected ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <span className="font-medium text-slate-900">Active Data Link</span>
+                </div>
+                <Badge variant={stripeConnected || qboConnected ? 'default' : 'secondary'}>
+                  {stripeConnected || qboConnected ? 'Connected' : 'Missing'}
+                </Badge>
+              </div>
+            </div>
+            
+            {!configStatus?.openai || !configStatus?.resend ? (
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-100 rounded-lg flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-semibold">Setup Required for Recovery</p>
+                  <p>Your recovery engine is currently in "Setup Mode". Please provide your OpenAI and Resend API keys in the environment configuration to enable AI-powered recovery.</p>
+                </div>
+              </div>
+            ) : (stripeConnected || qboConnected) && (
+              <div className="mt-6 p-4 bg-emerald-50 border border-emerald-100 rounded-lg flex items-start gap-3">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-emerald-800">
+                  <p className="font-semibold">System is Live</p>
+                  <p>Your recovery engine is fully configured and ready to process outstanding invoices automatically.</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Branding & Profile Card */}
+        <Card className="md:col-span-2 border border-slate-200 shadow-sm overflow-hidden">
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+                <Palette className="h-6 w-6" />
+              </div>
+              <div>
+                <CardTitle className="text-xl font-bold">Branding & Profile</CardTitle>
+                <CardDescription>Customize how your business appears in recovery emails</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="org-name">Organization Name</Label>
+                  <Input 
+                    id="org-name" 
+                    value={profile.organization_name} 
+                    onChange={(e) => setProfile({...profile, organization_name: e.target.value})}
+                    placeholder="Your Business Name"
+                  />
+                  <p className="text-[11px] text-slate-500">How your business is identified in emails.</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="logo-url">Logo URL</Label>
+                  <Input 
+                    id="logo-url" 
+                    value={profile.logo_url} 
+                    onChange={(e) => setProfile({...profile, logo_url: e.target.value})}
+                    placeholder="https://example.com/logo.png"
+                  />
+                  <p className="text-[11px] text-slate-500">Public URL to your company logo (PNG or SVG preferred).</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="from-name">Default "From" Name</Label>
+                  <Input 
+                    id="from-name" 
+                    value={profile.default_from_name} 
+                    onChange={(e) => setProfile({...profile, default_from_name: e.target.value})}
+                    placeholder="e.g. Finance Team"
+                  />
+                  <p className="text-[11px] text-slate-500">The sender name customers see in their inbox.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="tone">Global Tone Preference</Label>
+                  <Select 
+                    value={profile.global_tone_preference} 
+                    onValueChange={(value) => setProfile({...profile, global_tone_preference: value})}
+                  >
+                    <SelectTrigger id="tone" className="w-full">
+                      <SelectValue placeholder="Select tone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="polite">Polite & Friendly</SelectItem>
+                      <SelectItem value="firm">Firm & Professional</SelectItem>
+                      <SelectItem value="urgent">Urgent & Direct</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-slate-500">Sets the base personality for AI-generated messages.</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+            <Button 
+              className="bg-indigo-600 hover:bg-indigo-700" 
+              onClick={handleSaveProfile}
+              disabled={profileSaving}
+            >
+              {profileSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save Branding Settings
+            </Button>
+          </CardFooter>
+        </Card>
+
         {/* Stripe Card */}
         <Card className="flex flex-col h-full border border-slate-200 hover:border-slate-300 transition-colors shadow-sm">
           <CardHeader className="pb-4">

@@ -7,6 +7,7 @@ import {
   LayoutDashboard, 
   FileText, 
   Mail, 
+  Activity,
   Settings, 
   LogOut 
 } from 'lucide-react'
@@ -16,6 +17,7 @@ import { useRouter } from 'next/navigation'
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Invoices', href: '/invoices', icon: FileText },
+  { name: 'Campaigns', href: '/campaigns', icon: Activity },
   { name: 'Sequences', href: '/sequences', icon: Mail },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
