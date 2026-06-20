@@ -5,10 +5,9 @@ import { createClient } from '@/lib/supabase-server';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface SendDunningEmailParams {
-  profileId: string;
-  invoiceId: string;
   campaignId: string;
   stepId: string;
+  invoiceId: string;
   to: string;
   subject: string;
   body: string;
@@ -21,10 +20,9 @@ interface SendDunningEmailParams {
  * @returns {Promise<{ success: boolean; messageId?: string; error?: any }>}
  */
 export async function sendDunningEmail({
-  profileId,
-  invoiceId,
   campaignId,
   stepId,
+  invoiceId,
   to,
   subject,
   body,
