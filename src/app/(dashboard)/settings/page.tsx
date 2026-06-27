@@ -6,14 +6,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useSupabase } from '@/hooks/use-supabase'
-import {
+import { 
   Activity,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  CreditCard,
-  Building2,
-  Link2,
+  CheckCircle2, 
+  XCircle, 
+  Loader2, 
+  CreditCard, 
+  Building2, 
+  Link2, 
   Unlink,
   AlertCircle,
   Settings as SettingsIcon,
