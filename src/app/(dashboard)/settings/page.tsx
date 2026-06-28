@@ -6,13 +6,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useSupabase } from '@/hooks/use-supabase'
-import { 
-  CheckCircle2, 
-  XCircle, 
-  Loader2, 
-  CreditCard, 
-  Building2, 
-  Link2, 
+import {
+  Activity,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  CreditCard,
+  Building2,
+  Link2,
   Unlink,
   AlertCircle,
   Activity,
@@ -259,7 +260,7 @@ export default function SettingsPage() {
           type: 'success',
           message: data.message || `Disconnected ${provider === 'stripe' ? 'Stripe' : 'QuickBooks Online'}.`,
         })
-        await fetchConnections()
+        await fetchData()
       } else {
         setNotification({
           type: 'error',
