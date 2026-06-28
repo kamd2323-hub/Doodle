@@ -13,6 +13,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { SystemStatusBadge } from '@/components/dashboard/system-status'
+import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -31,7 +32,14 @@ export default async function DashboardPage() {
     )
   }
 
-  // 1. Fetch Integrations to check state
+  // 1. Fetch Profile for branding check
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('organization_name, business_name')
+    .eq('id', user.id)
+    .single()
+
+  // 2. Fetch Integrations to check state
   const { data: connections } = await supabase
     .from('oauth_connections')
     .select('provider, status')
@@ -40,7 +48,15 @@ export default async function DashboardPage() {
   const hasIntegrations = connections && connections.length > 0
   const activeIntegrations = connections?.filter(c => c.status === 'active') || []
 
-  // 2. Fetch Outstanding Invoices
+  // 3. Fetch Campaigns to check if any exist
+  const { count: campaignCount } = await supabase
+    .from('dunning_campaigns')
+    .select('*', { count: 'exact', head: true })
+    .eq('profile_id', user.id)
+
+  const hasCampaigns = (campaignCount || 0) > 0
+
+  // 4. Fetch Outstanding Invoices
   const { data: openInvoices } = await supabase
     .from('invoices')
     .select('amount_due_cents')
@@ -159,6 +175,12 @@ export default async function DashboardPage() {
           )}
         </div>
       </div>
+
+      <OnboardingChecklist 
+        profile={profile}
+        hasIntegrations={hasIntegrations}
+        hasCampaigns={hasCampaigns}
+      />
 
       {!hasIntegrations ? (
         <Card className="border-dashed border-2 bg-slate-50/50">
