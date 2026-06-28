@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase-server';
 import { personalizeEmail } from '@/lib/ai/personalization';
 import { sendDunningEmail } from '@/lib/email';
+import { checkAndNotifyMilestones } from '@/lib/milestones';
 
 export interface ProcessResult {
   successCount: number;
@@ -405,6 +406,13 @@ export async function handleInvoicePaid(
     console.error(`[WebhookHandler] Failed to log recovery for campaign ${campaign.id}:`, recoveryError);
   }
 
+  // Check and notify milestones after successful recovery
+  try {
+    await checkAndNotifyMilestones();
+  } catch (milestoneErr) {
+    console.error(`[WebhookHandler] Milestone check failed (non-critical):`, milestoneErr);
+  }
+
   console.log(`[WebhookHandler] Successfully stopped dunning campaign ${campaign.id} and recorded recovery for invoice ${invoice.id}.`);
   return { success: true, campaignId: campaign.id, invoiceId: invoice.id };
 }
@@ -483,6 +491,15 @@ export async function autoResolvePaidCampaigns() {
       }
 
       resolvedCount++;
+    }
+  }
+
+  if (resolvedCount > 0) {
+    // Check milestones if any campaigns were auto-resolved
+    try {
+      await checkAndNotifyMilestones();
+    } catch (milestoneErr) {
+      console.error(`[DunningProcessor] Milestone check after auto-resolve failed (non-critical):`, milestoneErr);
     }
   }
 
