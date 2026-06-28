@@ -74,6 +74,80 @@ export async function GET(request: Request) {
       }
     }
 
+    // 3. Resolve Organization context (multi-user Phase 3)
+    let organizationId: string | null = null
+    let organizationName: string | null = null
+    let userRole: string | null = null
+    let memberCount = 0
+    let maxMembers = 1
+    let planTier: string | null = null
+
+    if (supabase && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your-supabase-url' &&
+        process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://placeholder-project.supabase.co') {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('organization_id')
+          .eq('id', userId)
+          .single()
+        if (profile?.organization_id) {
+          organizationId = profile.organization_id
+          const { data: org } = await supabase
+            .from('organizations')
+            .select('name, max_members, plan_tier')
+            .eq('id', organizationId)
+            .single()
+          if (org) {
+            organizationName = org.name
+            maxMembers = org.max_members
+            planTier = org.plan_tier
+          }
+          const { data: membership } = await supabase
+            .from('organization_members')
+            .select('role')
+            .eq('organization_id', organizationId)
+            .eq('profile_id', userId)
+            .eq('status', 'active')
+            .single()
+          if (membership) userRole = membership.role
+          const { count } = await supabase
+            .from('organization_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('organization_id', organizationId)
+            .eq('status', 'active')
+          if (count !== null) memberCount = count
+        }
+      } catch (err) {
+        console.warn('Supabase org context fetch failed:', err)
+      }
+    }
+
+    // Fallback to local mock org store
+    if (!organizationId) {
+      const ORG_STORE_PATH = '/tmp/mock_organization_data.json'
+      try {
+        if (fs.existsSync(ORG_STORE_PATH)) {
+          const store = JSON.parse(fs.readFileSync(ORG_STORE_PATH, 'utf-8'))
+          const existingMember = store.members?.find((m: any) => m.profile_id === userId && m.status === 'active')
+          if (existingMember) {
+            organizationId = existingMember.organization_id
+            userRole = existingMember.role
+            const org = store.organizations?.find((o: any) => o.id === organizationId)
+            if (org) {
+              organizationName = org.name
+              maxMembers = org.max_members
+              planTier = org.plan_tier
+            }
+            memberCount = store.members?.filter(
+              (m: any) => m.organization_id === organizationId && m.status === 'active'
+            ).length || 0
+          }
+        }
+      } catch (err) {
+        console.warn('Fallback org store read failed:', err)
+      }
+    }
+
     return NextResponse.json({
       integrations: {
         stripe: {
@@ -86,7 +160,15 @@ export async function GET(request: Request) {
           name: 'QuickBooks Online',
           tenantName: quickbooksTenantName,
         }
-      }
+      },
+      organization: organizationId ? {
+        id: organizationId,
+        name: organizationName,
+        role: userRole,
+        memberCount,
+        maxMembers,
+        planTier,
+      } : null,
     })
   } catch (error: any) {
     console.error('Status route error:', error)
