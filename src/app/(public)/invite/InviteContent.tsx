@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { createClient } from '@/lib/supabase'
 import {
   Loader2,
   CheckCircle2,
@@ -89,12 +90,13 @@ export default function InviteContent() {
     fetchInvitation()
   }, [fetchInvitation])
 
-  // Check if user is logged in
+  // Check if user is logged in via Supabase
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/organization')
-        if (res.ok) {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
           setIsLoggedIn(true)
         } else {
           setIsLoggedIn(false)
