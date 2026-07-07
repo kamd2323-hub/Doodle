@@ -3,16 +3,17 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Mail, 
+import {
+  LayoutDashboard,
+  FileText,
+  Mail,
   Activity,
-  Settings, 
-  LogOut 
+  Settings,
+  LogOut
 } from 'lucide-react'
 import { useSupabase } from '@/hooks/use-supabase'
 import { useRouter } from 'next/navigation'
+import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -38,8 +39,11 @@ export function Sidebar() {
       <div className="flex h-16 items-center px-6">
         <span className="text-xl font-bold">Reclaim AI</span>
       </div>
+
+      <OrganizationSwitcher />
+
       <div className="flex flex-1 flex-col overflow-y-auto">
-        <nav className="flex-1 space-y-1 px-2 py-4">
+        <nav className="flex-1 space-y-1 px-2 py-2">
           {navigation.map((item) => {
             const isActive = pathname === item.href
             return (
