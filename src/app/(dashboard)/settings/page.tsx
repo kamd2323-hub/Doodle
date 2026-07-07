@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useSupabase } from '@/hooks/use-supabase'
 import { 
-  Activity,
+
   CheckCircle2, 
   XCircle, 
   Loader2, 
@@ -16,7 +16,8 @@ import {
   Link2, 
   Unlink,
   AlertCircle,
-  Activity,
+Activity,
+
   Settings as SettingsIcon,
   Globe,
   Palette,
@@ -458,7 +459,7 @@ export default function SettingsPage() {
                   <Label htmlFor="tone">Global Tone Preference</Label>
                   <Select 
                     value={profile.global_tone_preference} 
-                    onValueChange={(value) => setProfile({...profile, global_tone_preference: value})}
+                    onValueChange={(value: string) => setProfile({...profile, global_tone_preference: value})}
                   >
                     <SelectTrigger id="tone" className="w-full">
                       <SelectValue placeholder="Select tone" />

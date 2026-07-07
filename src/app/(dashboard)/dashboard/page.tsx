@@ -1,24 +1,41 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { 
-  Users, 
-  DollarSign, 
-  BarChart3, 
-  ArrowUpRight,
+import {
+  Users,
+  DollarSign,
+  BarChart3,
   Activity,
   AlertCircle,
-  Mail
+  Mail,
+  Building2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase-server'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { SystemStatusBadge } from '@/components/dashboard/system-status'
+import * as fs from 'fs'
 
-export default async function DashboardPage() {
+const ORG_STORE_PATH = '/tmp/mock_organization_data.json'
+
+function loadOrgStore(): any {
+  try {
+    if (fs.existsSync(ORG_STORE_PATH)) {
+      return JSON.parse(fs.readFileSync(ORG_STORE_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return { organizations: [], members: [], invitations: [], invoices: [], recoveries: [] }
+}
+
+interface DashboardPageProps {
+  searchParams: Promise<{ org_id?: string }>
+}
+
+export default async function DashboardPage(props: DashboardPageProps) {
+  const searchParams = await props.searchParams
   const supabase = await createClient()
-  
+
   const { data: { user } } = await supabase.auth.getUser()
-  
+
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
@@ -31,7 +48,87 @@ export default async function DashboardPage() {
     )
   }
 
-  // 1. Fetch Integrations to check state
+  // Resolve active organization_id
+  let orgId = searchParams?.org_id
+  let orgName = ''
+  let userRole: string | null = null
+  const isMock = !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'your-supabase-url' ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder-project.supabase.co'
+
+  if (!orgId) {
+    if (!isMock) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('organization_id')
+          .eq('id', user.id)
+          .single()
+        if (profile?.organization_id) {
+          orgId = profile.organization_id
+        }
+      } catch { /* fall through */ }
+    }
+
+    if (!orgId) {
+      const store = loadOrgStore()
+      if (store.members) {
+        const membership = store.members.find((m: any) => m.profile_id === user.id && m.status === 'active')
+        if (membership) {
+          orgId = membership.organization_id
+          userRole = membership.role
+          const org = store.organizations.find((o: any) => o.id === orgId)
+          if (org) orgName = org.name
+        }
+      }
+    }
+
+    if (!orgId) {
+      const store = loadOrgStore()
+      const defaultOrg = {
+        id: `org-${Date.now()}`,
+        name: 'My Organization',
+        plan_tier: 'standard',
+        max_members: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      store.organizations.push(defaultOrg)
+      store.members.push({
+        id: `mem-${Date.now()}`,
+        organization_id: defaultOrg.id,
+        profile_id: user.id,
+        role: 'admin',
+        status: 'active',
+        invited_by: user.id,
+        invited_at: new Date().toISOString(),
+        accepted_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      })
+      try { fs.writeFileSync(ORG_STORE_PATH, JSON.stringify(store, null, 2), 'utf-8') } catch { /* ignore */ }
+      orgId = defaultOrg.id
+      orgName = defaultOrg.name
+      userRole = 'admin'
+    }
+  } else {
+    if (!isMock) {
+      try {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', orgId)
+          .single()
+        if (org) orgName = org.name || ''
+      } catch { /* fall through */ }
+    }
+    if (!orgName) {
+      const store = loadOrgStore()
+      const org = store.organizations.find((o: any) => o.id === orgId)
+      if (org) orgName = org.name || ''
+    }
+  }
+
+  // 1. Fetch Integrations
   const { data: connections } = await supabase
     .from('oauth_connections')
     .select('provider, status')
@@ -40,22 +137,56 @@ export default async function DashboardPage() {
   const hasIntegrations = connections && connections.length > 0
   const activeIntegrations = connections?.filter(c => c.status === 'active') || []
 
-  // 2. Fetch Outstanding Invoices
-  const { data: openInvoices } = await supabase
-    .from('invoices')
-    .select('amount_due_cents')
-    .eq('profile_id', user.id)
-    .eq('status', 'open')
+  // 2. Fetch Outstanding Invoices — try org-scoped first
+  let totalOutstandingCents = 0
+  if (orgId && !isMock) {
+    try {
+      const { data: orgInvoices } = await supabase
+        .from('invoices')
+        .select('amount_due_cents')
+        .eq('organization_id', orgId)
+        .eq('status', 'open')
+      if (orgInvoices) {
+        totalOutstandingCents = orgInvoices.reduce((acc, inv) => acc + Number(inv.amount_due_cents), 0)
+      }
+    } catch { /* fall through */ }
+  }
 
-  const totalOutstandingCents = openInvoices?.reduce((acc, inv) => acc + Number(inv.amount_due_cents), 0) || 0
+  // Fallback to mock org-scoped
+  if (totalOutstandingCents === 0 && orgId) {
+    const store = loadOrgStore()
+    if (store.invoices) {
+      const orgInvoices = store.invoices.filter((inv: any) => inv.organization_id === orgId && inv.status === 'open')
+      totalOutstandingCents = orgInvoices.reduce((acc: number, inv: any) => acc + Number(inv.amount_due_cents || inv.amount_cents || 0), 0)
+    }
+  }
 
-  // 3. Fetch Total Recovered
-  const { data: recoveries } = await supabase
-    .from('recoveries')
-    .select('amount_recovered_cents')
-    .eq('profile_id', user.id)
+  // Absolute fallback: profile-scoped
+  if (totalOutstandingCents === 0) {
+    const { data: openInvoices } = await supabase
+      .from('invoices')
+      .select('amount_due_cents')
+      .eq('profile_id', user.id)
+      .eq('status', 'open')
+    totalOutstandingCents = openInvoices?.reduce((acc, inv) => acc + Number(inv.amount_due_cents), 0) || 0
+  }
 
-  const totalRecoveredCents = recoveries?.reduce((acc, rec) => acc + Number(rec.amount_recovered_cents), 0) || 0
+  // 3. Fetch Total Recovered — org-scoped
+  let totalRecoveredCents = 0
+  if (orgId && isMock) {
+    const store = loadOrgStore()
+    if (store.recoveries) {
+      const orgRecoveries = store.recoveries.filter((rec: any) => rec.organization_id === orgId)
+      totalRecoveredCents = orgRecoveries.reduce((acc: number, rec: any) => acc + Number(rec.amount_recovered_cents || 0), 0)
+    }
+  }
+  if (totalRecoveredCents === 0) {
+    const { data: recoveries } = await supabase
+      .from('recoveries')
+      .select('amount_recovered_cents')
+      .eq('profile_id', user.id)
+    totalRecoveredCents = recoveries?.reduce((acc, rec) => acc + Number(rec.amount_recovered_cents), 0) || 0
+  }
 
   // 4. Recovery Rate
   const { count: totalCampaigns } = await supabase
@@ -69,11 +200,11 @@ export default async function DashboardPage() {
     .eq('profile_id', user.id)
     .eq('status', 'recovered')
 
-  const recoveryRate = totalCampaigns && totalCampaigns > 0 
-    ? (recoveredCampaigns || 0) / totalCampaigns * 100 
+  const recoveryRate = totalCampaigns && totalCampaigns > 0
+    ? (recoveredCampaigns || 0) / totalCampaigns * 100
     : 0
 
-  // 5. Recent Activity (Email Logs)
+  // 5. Recent Activity
   const { data: recentLogs } = await supabase
     .from('dunning_email_logs')
     .select(`
@@ -113,26 +244,26 @@ export default async function DashboardPage() {
   }
 
   const stats = [
-    { 
-      name: 'Total Outstanding', 
-      value: formatCurrency(totalOutstandingCents), 
-      icon: DollarSign, 
+    {
+      name: 'Total Outstanding',
+      value: formatCurrency(totalOutstandingCents),
+      icon: DollarSign,
       description: 'Open invoices awaiting payment',
-      color: 'text-blue-600' 
+      color: 'text-blue-600'
     },
-    { 
-      name: 'Recovery Rate', 
-      value: `${recoveryRate.toFixed(1)}%`, 
-      icon: BarChart3, 
+    {
+      name: 'Recovery Rate',
+      value: `${recoveryRate.toFixed(1)}%`,
+      icon: BarChart3,
       description: 'Success rate of dunning campaigns',
-      color: 'text-green-600' 
+      color: 'text-green-600'
     },
-    { 
-      name: 'Total Recovered', 
-      value: formatCurrency(totalRecoveredCents), 
-      icon: Users, 
+    {
+      name: 'Total Recovered',
+      value: formatCurrency(totalRecoveredCents),
+      icon: Users,
       description: 'Revenue saved through Reclaim AI',
-      color: 'text-indigo-600' 
+      color: 'text-indigo-600'
     },
   ]
 
@@ -140,11 +271,20 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">
-            {activeIntegrations.length > 0 
-              ? `Connected to ${activeIntegrations.map(i => i.provider).join(' & ')}.` 
-              : 'Welcome back to Reclaim AI.'}
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
+            {orgName && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 border border-indigo-200">
+                <Building2 className="h-3 w-3" />
+                {orgName}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-500 mt-1">
+            {orgId ? 'Organization-scoped view.' : ''}
+            {activeIntegrations.length > 0
+              ? ` Connected to ${activeIntegrations.map(i => i.provider).join(' & ')}.`
+              : ' Welcome back to Reclaim AI.'}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -212,7 +352,7 @@ export default async function DashboardPage() {
                             Email sent to {log.recipient_email}
                           </p>
                           <p className="text-xs text-slate-500">
-                            Invoice: {log.invoices?.invoice_number || 'N/A'} • {log.sent_at ? format(new Date(log.sent_at), 'MMM d, h:mm a') : 'Just now'}
+                            Invoice: {log.invoices?.invoice_number || 'N/A'} &bull; {log.sent_at ? format(new Date(log.sent_at), 'MMM d, h:mm a') : 'Just now'}
                           </p>
                         </div>
                         <div className="ml-auto">
