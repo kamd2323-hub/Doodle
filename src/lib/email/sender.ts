@@ -56,7 +56,7 @@ export async function sendDunningEmail({
     if (profile?.organization_id) {
       const { data: org } = await supabase
         .from('organizations')
-        .select('primary_color, logo_url, from_name, from_email, custom_domain, name')
+        .select('primary_color, logo_url, from_name, from_email, custom_domain, domain_status, name')
         .eq('id', profile.organization_id)
         .single();
 
