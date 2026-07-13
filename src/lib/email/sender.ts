@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { createClient } from '@/lib/supabase-server';
+import { wrapWithBranding, BrandConfig } from '@/lib/email/template';
 
 // Initialize Resend with the API key from environment variables
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -15,9 +16,7 @@ interface SendDunningEmailParams {
 
 /**
  * Sends a dunning email using Resend and logs the result in the database.
- * 
- * @param params {SendDunningEmailParams} - The email details
- * @returns {Promise<{ success: boolean; messageId?: string; error?: any }>}
+ * Injects organization branding (logo, colors, sender identity) into the email HTML.
  */
 export async function sendDunningEmail({
   campaignId,
@@ -32,17 +31,62 @@ export async function sendDunningEmail({
   // 0. Fetch branding info from profile associated with the campaign
   const { data: campaignData } = await supabase
     .from('dunning_campaigns')
-    .select('profile:profiles(organization_name, default_from_name)')
+    .select('profile_id, profile:profiles(organization_name, default_from_name, logo_url)')
     .eq('id', campaignId)
     .single();
 
   const branding = (campaignData as any)?.profile;
   const fromName = branding?.default_from_name || branding?.organization_name || 'Reclaim AI';
 
-  // Determine the 'from' address. 
-  // Note: In production, this should be a verified domain.
-  const fromAddress = process.env.FROM_EMAIL_ADDRESS || 'onboarding@resend.dev';
+  // Also fetch org-level branding (primary_color, from_email, custom_domain)
+  let brandConfig: BrandConfig = {
+    organizationName: branding?.organization_name || 'Reclaim AI',
+    logoUrl: branding?.logo_url || null,
+    fromName,
+  };
+
+  // Try to get richer branding from the organization record
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', (campaignData as any)?.profile_id || '')
+      .single();
+
+    if (profile?.organization_id) {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('primary_color, logo_url, from_name, from_email, custom_domain, name')
+        .eq('id', profile.organization_id)
+        .single();
+
+      if (org) {
+        brandConfig = {
+          organizationName: org.name || brandConfig.organizationName,
+          logoUrl: org.logo_url || brandConfig.logoUrl,
+          primaryColor: org.primary_color || undefined,
+          fromName: org.from_name || brandConfig.fromName,
+          fromEmail: org.from_email || undefined,
+          customDomain: org.custom_domain || undefined,
+        };
+
+        // Auto-construct from-address from verified custom domain
+        if (!org.from_email && org.domain_status === 'verified' && org.custom_domain) {
+          const slug = (org.from_name || branding?.organization_name || 'hello')
+            .toLowerCase().replace(/[^a-z0-9]/g, '');
+          brandConfig.fromEmail = `${slug}@${org.custom_domain}`;
+          brandConfig.customDomain = org.custom_domain;
+        }
+      }
+    }
+  } catch { /* fall through - use profile-level branding */ }
+
+  // Determine the 'from' address
+  const fromAddress = brandConfig.fromEmail || process.env.FROM_EMAIL_ADDRESS || 'onboarding@resend.dev';
   const fromEmail = `${fromName} <${fromAddress}>`;
+
+  // Wrap the email body in branded HTML template
+  const brandedBody = wrapWithBranding(body, brandConfig);
 
   try {
     // 1. Send the email via Resend
@@ -50,12 +94,12 @@ export async function sendDunningEmail({
       from: fromEmail,
       to,
       subject,
-      html: body,
+      html: brandedBody,
     });
 
     if (error) {
       console.error('Resend email dispatch error:', error);
-      
+
       // Log the failure in the database
       await supabase
         .from('dunning_email_logs')
@@ -65,7 +109,7 @@ export async function sendDunningEmail({
           invoice_id: invoiceId,
           recipient_email: to,
           sent_subject: subject,
-          sent_body: body,
+          sent_body: brandedBody,
           status: 'failed',
           error_message: error.message,
           sent_at: new Date().toISOString(),
@@ -83,7 +127,7 @@ export async function sendDunningEmail({
         invoice_id: invoiceId,
         recipient_email: to,
         sent_subject: subject,
-        sent_body: body,
+        sent_body: brandedBody,
         status: 'sent',
         sent_at: new Date().toISOString(),
         provider_message_id: data?.id,
@@ -91,13 +135,12 @@ export async function sendDunningEmail({
 
     if (logError) {
       console.error('Failed to log sent email to Supabase:', logError);
-      // We don't return success: false here because the email WAS actually sent.
     }
 
     return { success: true, messageId: data?.id };
   } catch (err) {
     console.error('Unexpected error in sendDunningEmail:', err);
-    
+
     // Log unexpected failure
     try {
       await supabase
@@ -108,7 +151,7 @@ export async function sendDunningEmail({
           invoice_id: invoiceId,
           recipient_email: to,
           sent_subject: subject,
-          sent_body: body,
+          sent_body: brandedBody,
           status: 'failed',
           error_message: err instanceof Error ? err.message : String(err),
           sent_at: new Date().toISOString(),
