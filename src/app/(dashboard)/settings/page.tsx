@@ -9,6 +9,7 @@ import { BrandingTab } from '@/components/settings/BrandingTab'
 import { DomainTab } from '@/components/settings/DomainTab'
 import { TeamTab } from '@/components/settings/TeamTab'
 import { OrganizationTab } from '@/components/settings/OrganizationTab'
+import { BillingTab } from '@/components/settings/BillingTab'
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -22,8 +23,8 @@ export default function SettingsPage() {
   // Resolve effective tab (handle invalid/mis-gated tabs)
   let activeTab = validTabIds.includes(tabFromUrl) ? tabFromUrl : 'integrations'
 
-  // If the active tab is org and user is not admin, fallback to integrations
-  if (activeTab === 'organization' && role !== 'admin') {
+  // If the active tab is billing or org and user is not admin, fallback to integrations
+  if ((activeTab === 'organization' || activeTab === 'billing') && role !== 'admin') {
     activeTab = 'integrations'
   }
 
@@ -55,7 +56,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!loadingRole && role !== null) {
       const effectiveTab = validTabIds.includes(tabFromUrl) ? tabFromUrl : 'integrations'
-      const finalTab = (effectiveTab === 'organization' && role !== 'admin') ? 'integrations' : effectiveTab
+      const finalTab = (effectiveTab === 'organization' || effectiveTab === 'billing') && role !== 'admin' ? 'integrations' : effectiveTab
       if (finalTab !== tabFromUrl) {
         router.replace(`/settings?tab=${finalTab}`, { scroll: false })
       }
@@ -80,6 +81,8 @@ export default function SettingsPage() {
         return <DomainTab />
       case 'team':
         return <TeamTab />
+      case 'billing':
+        return role === 'admin' ? <BillingTab /> : <IntegrationsTab />
       case 'organization':
         return role === 'admin' ? <OrganizationTab /> : <IntegrationsTab />
       default:
