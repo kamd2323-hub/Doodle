@@ -16,14 +16,24 @@ import {
   ExternalLink,
 } from 'lucide-react'
 
-interface Organization {
-  id: string
-  name: string
-  slug: string
-  plan_tier: 'standard' | 'premium'
-  max_members: number
-  billing_email?: string
-  stripe_customer_id?: string
+interface BillingSubscription {
+  organization_id: string
+  plan_tier: 'standard' | 'premium' | 'none'
+  subscription_status: string
+  stripe_customer_id: string | null
+  current_period_end: string | null
+  hasActiveSubscription: boolean
+}
+
+interface BillingFeature {
+  allowed: boolean
+  reason?: string
+  plan: string
+}
+
+interface BillingResponse {
+  subscription: BillingSubscription | null
+  features: Record<string, BillingFeature>
 }
 
 interface PlanFeature {
@@ -33,21 +43,22 @@ interface PlanFeature {
 }
 
 const STANDARD_FEATURES: PlanFeature[] = [
+  { label: 'Dunning email sequences', included: true, premium: false },
   { label: 'Up to 3 team members', included: true, premium: false },
-  { label: 'Basic dunning sequences', included: true, premium: false },
-  { label: 'Email notifications', included: true, premium: false },
   { label: 'Dashboard analytics', included: true, premium: false },
+  { label: 'Email notifications', included: true, premium: false },
   { label: 'Custom email branding', included: false, premium: true },
   { label: 'Custom domain verification', included: false, premium: true },
   { label: 'Unlimited team members', included: false, premium: true },
   { label: 'White-label experience', included: false, premium: true },
-  { label: 'Advanced reporting', included: false, premium: true },
+  { label: 'API access', included: false, premium: true },
   { label: 'Priority support', included: false, premium: true },
 ]
 
 export function BillingTab() {
   const searchParams = useSearchParams()
-  const [org, setOrg] = useState<Organization | null>(null)
+  const [subscription, setSubscription] = useState<BillingSubscription | null>(null)
+  const [features, setFeatures] = useState<Record<string, BillingFeature>>({})
   const [loading, setLoading] = useState(true)
   const [subscribing, setSubscribing] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
@@ -73,21 +84,22 @@ export function BillingTab() {
   }, [checkoutSuccess, checkoutCancelled, checkoutPlan])
 
   useEffect(() => {
-    const fetchOrg = async () => {
+    const fetchBilling = async () => {
       setLoading(true)
       try {
-        const res = await fetch('/api/organization')
+        const res = await fetch('/api/billing')
         if (res.ok) {
-          const data = await res.json()
-          setOrg(data.organization || null)
+          const data: BillingResponse = await res.json()
+          setSubscription(data.subscription || null)
+          setFeatures(data.features || {})
         }
       } catch {
-        console.error('Failed to fetch organization')
+        console.error('Failed to fetch billing data')
       } finally {
         setLoading(false)
       }
     }
-    fetchOrg()
+    fetchBilling()
   }, [])
 
   const handleSubscribe = async (plan: string) => {
@@ -129,8 +141,9 @@ export function BillingTab() {
     )
   }
 
-  const currentPlan = org?.plan_tier || 'standard'
+  const currentPlan = subscription?.plan_tier || 'standard'
   const isPremium = currentPlan === 'premium'
+  const hasActiveSub = subscription?.hasActiveSubscription ?? false
 
   return (
     <div className="space-y-6">
@@ -174,9 +187,9 @@ export function BillingTab() {
                   ? 'You\'re on the Premium plan — all features unlocked.'
                   : 'You\'re on the Standard plan. Upgrade to unlock premium features.'}
               </p>
-              {org?.billing_email && (
+              {subscription?.stripe_customer_id && (
                 <p className="text-xs text-slate-400">
-                  Billing email: <span className="font-mono">{org.billing_email}</span>
+                  Stripe customer ID: <span className="font-mono">{subscription.stripe_customer_id}</span>
                 </p>
               )}
             </div>
