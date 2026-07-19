@@ -13,11 +13,6 @@ import {
   Rocket,
   Star,
   Zap,
-  Users,
-  Globe,
-  Palette,
-  Mail,
-  Shield,
   ExternalLink,
 } from 'lucide-react'
 

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
-import { createCheckoutSession, PRICE_IDS } from '@/lib/billing'
+import { getOrgSubscription, checkFeatureAccess, isSubscriptionActive } from '@/lib/billing'
 import * as fs from 'fs'
 
 const ORG_STORE_PATH = '/tmp/mock_organization_data.json'
@@ -14,7 +14,10 @@ function loadStore(): any {
   return { organizations: [], members: [], invitations: [] }
 }
 
-export async function POST(request: Request) {
+/**
+ * GET /api/billing — Get current org's subscription status and feature access
+ */
+export async function GET(request: Request) {
   try {
     let userId = 'mock-user-id'
     let supabase: any = null
@@ -27,23 +30,19 @@ export async function POST(request: Request) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) userId = user.id
     } catch (e) {
-      console.warn('[Checkout API] Auth check failed:', e)
+      console.warn('[Billing API] Auth check failed:', e)
     }
 
     let orgId: string | null = null
-    let userEmail: string | undefined
 
     if (supabase && !isMock) {
       try {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('organization_id, contact_email')
+          .select('organization_id')
           .eq('id', userId)
           .single()
-        if (profile?.organization_id) {
-          orgId = profile.organization_id
-          userEmail = profile.contact_email || undefined
-        }
+        if (profile?.organization_id) orgId = profile.organization_id
       } catch { /* fall through */ }
     }
 
@@ -54,42 +53,33 @@ export async function POST(request: Request) {
     }
 
     if (!orgId) {
-      return NextResponse.json({ error: 'No organization found' }, { status: 404 })
-    }
-
-    const body = await request.json()
-    const { priceId, successUrl, cancelUrl } = body
-
-    if (!priceId) {
-      return NextResponse.json({ error: 'priceId is required' }, { status: 400 })
-    }
-
-    const validPrices = Object.values(PRICE_IDS)
-    if (!validPrices.includes(priceId)) {
       return NextResponse.json({
-        error: 'Invalid price ID',
-        validPrices,
-      }, { status: 400 })
+        subscription: null,
+        features: {},
+        message: 'No organization found',
+      })
     }
 
-    const result = await createCheckoutSession(
-      orgId,
-      priceId,
-      successUrl || `${request.headers.get('origin') || 'http://localhost:3000'}/settings?tab=billing`,
-      cancelUrl || `${request.headers.get('origin') || 'http://localhost:3000'}/settings?tab=billing`,
-      userEmail
-    )
+    const subscription = await getOrgSubscription(orgId)
+    const hasActiveSub = isSubscriptionActive(subscription.subscription_status)
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 })
+    const features = {
+      dunning: checkFeatureAccess(subscription, 'dunning'),
+      team: checkFeatureAccess(subscription, 'team'),
+      custom_domain: checkFeatureAccess(subscription, 'custom_domain'),
+      white_label: checkFeatureAccess(subscription, 'white_label'),
+      api_access: checkFeatureAccess(subscription, 'api_access'),
     }
 
     return NextResponse.json({
-      url: result.url,
-      sessionId: result.sessionId,
+      subscription: {
+        ...subscription,
+        hasActiveSubscription: hasActiveSub,
+      },
+      features,
     })
   } catch (error: any) {
-    console.error('[Checkout API] Error:', error)
+    console.error('[Billing API] Error:', error)
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 })
   }
 }

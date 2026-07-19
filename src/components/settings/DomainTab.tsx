@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Globe, CheckCircle2, AlertCircle, XCircle, Loader2, RefreshCw } from 'lucide-react'
-import { PremiumGate } from '@/components/settings/PremiumGate'
 
 interface DomainRecord {
   type: string
@@ -119,8 +118,7 @@ export function DomainTab() {
   }
 
   return (
-    <PremiumGate feature="Custom domain verification">
-      <Card className="border border-slate-200 shadow-sm overflow-hidden">
+    <Card className="border border-slate-200 shadow-sm overflow-hidden">
       <CardHeader className="bg-slate-50/50 border-b border-slate-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -247,6 +245,5 @@ export function DomainTab() {
         </div>
       </CardContent>
     </Card>
-    </PremiumGate>
   )
 }
