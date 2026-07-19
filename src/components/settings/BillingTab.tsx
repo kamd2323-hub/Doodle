@@ -55,6 +55,11 @@ const STANDARD_FEATURES: PlanFeature[] = [
   { label: 'Priority support', included: false, premium: true },
 ]
 
+const PRICE_IDS = {
+  standard: 'price_1TsjLKDExcDNxwkFkbIxelhO',
+  premium: 'price_1TsjLSDExcDNxwkFxxyF3xTa',
+} as const
+
 export function BillingTab() {
   const searchParams = useSearchParams()
   const [subscription, setSubscription] = useState<BillingSubscription | null>(null)
@@ -103,13 +108,18 @@ export function BillingTab() {
   }, [])
 
   const handleSubscribe = async (plan: string) => {
+    const priceId = PRICE_IDS[plan as keyof typeof PRICE_IDS]
+    if (!priceId) {
+      setNotification({ type: 'error', message: `Unknown plan: ${plan}` })
+      return
+    }
     setSubscribing(plan)
     setNotification(null)
     try {
       const res = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ priceId }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create checkout session')
