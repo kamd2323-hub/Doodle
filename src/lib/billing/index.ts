@@ -204,7 +204,8 @@ export async function createCheckoutSession(
   priceId: string,
   successUrl: string,
   cancelUrl: string,
-  customerEmail?: string
+  customerEmail?: string,
+  rewardfulRef?: string
 ): Promise<{ url?: string; sessionId?: string; error?: string }> {
   // Mock mode
   const stripe = getStripeClient()
@@ -228,6 +229,12 @@ export async function createCheckoutSession(
   }
 
   try {
+    // Build session metadata — always include orgId + optional rewardful referral
+    const sessionMetadata: Record<string, string> = { organization_id: orgId }
+    if (rewardfulRef) {
+      sessionMetadata.rewardful = rewardfulRef
+    }
+
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -236,9 +243,9 @@ export async function createCheckoutSession(
       success_url: successUrl,
       cancel_url: cancelUrl,
       customer_email: customerEmail,
-      metadata: { organization_id: orgId },
+      metadata: sessionMetadata,
       subscription_data: {
-        metadata: { organization_id: orgId },
+        metadata: sessionMetadata,
       },
     })
 

@@ -72,12 +72,18 @@ export async function POST(request: Request) {
       }, { status: 400 })
     }
 
+    // Read Rewardful referral cookie for affiliate commission tracking
+    const cookieHeader = request.headers.get('cookie') || ''
+    const rewardfulMatch = cookieHeader.match(/(?:^|;\s*)_rewardful_id=([^;]+)/)
+    const rewardfulRef = rewardfulMatch ? decodeURIComponent(rewardfulMatch[1]) : undefined
+
     const result = await createCheckoutSession(
       orgId,
       priceId,
       successUrl || `${request.headers.get('origin') || 'http://localhost:3000'}/settings?tab=billing`,
       cancelUrl || `${request.headers.get('origin') || 'http://localhost:3000'}/settings?tab=billing`,
-      userEmail
+      userEmail,
+      rewardfulRef
     )
 
     if (result.error) {

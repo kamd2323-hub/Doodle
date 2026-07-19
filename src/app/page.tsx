@@ -35,6 +35,9 @@ export default async function LandingPage() {
               <Link className="text-sm font-medium hover:text-indigo-600 transition-colors" href="/blog/polite-invoice-payment-reminder">
                 Blog
               </Link>
+              <Link className="text-sm font-medium hover:text-indigo-600 transition-colors" href="/partners">
+                Partners
+              </Link>
               <Link className="text-sm font-medium hover:text-indigo-600 transition-colors" href="/login">
                 Sign In
               </Link>
@@ -267,6 +270,9 @@ export default async function LandingPage() {
         <nav className="sm:ml-auto flex gap-4 sm:gap-6">
           <Link className="text-xs hover:underline underline-offset-4 text-slate-500" href="/blog/polite-invoice-payment-reminder">
             Blog
+          </Link>
+          <Link className="text-xs hover:underline underline-offset-4 text-slate-500" href="/partners">
+            Partners
           </Link>
           <Link className="text-xs hover:underline underline-offset-4 text-slate-500" href="#">
             Terms of Service

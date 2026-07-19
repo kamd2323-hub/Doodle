@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import { RewardfulScript } from "@/components/partners/RewardfulScript";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,6 +30,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <RewardfulScript />
         <main className="flex-1">{children}</main>
         <footer className="border-t border-slate-200 bg-slate-50/80">
           <div className="max-w-7xl mx-auto px-4 py-8">
@@ -37,6 +39,12 @@ export default function RootLayout({
                 &copy; {new Date().getFullYear()} Reclaim AI. All rights reserved.
               </p>
               <nav className="flex items-center gap-6">
+                <Link
+                  href="/partners"
+                  className="text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  Partners
+                </Link>
                 <Link
                   href="/privacy"
                   className="text-sm text-slate-500 hover:text-slate-700 transition-colors"
