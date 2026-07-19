@@ -32,6 +32,9 @@ export default async function LandingPage() {
             </Button>
           ) : (
             <>
+              <Link className="text-sm font-medium hover:text-indigo-600 transition-colors" href="/blog/polite-invoice-payment-reminder">
+                Blog
+              </Link>
               <Link className="text-sm font-medium hover:text-indigo-600 transition-colors" href="/login">
                 Sign In
               </Link>
@@ -262,6 +265,9 @@ export default async function LandingPage() {
           © 2026 Reclaim AI. All rights reserved.
         </p>
         <nav className="sm:ml-auto flex gap-4 sm:gap-6">
+          <Link className="text-xs hover:underline underline-offset-4 text-slate-500" href="/blog/polite-invoice-payment-reminder">
+            Blog
+          </Link>
           <Link className="text-xs hover:underline underline-offset-4 text-slate-500" href="#">
             Terms of Service
           </Link>
