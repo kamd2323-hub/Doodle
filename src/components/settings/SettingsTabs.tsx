@@ -8,6 +8,7 @@ import {
   Users,
   Building2,
   ChevronDown,
+  CreditCard,
 } from 'lucide-react'
 
 export interface TabDef {
@@ -22,6 +23,7 @@ export const SETTINGS_TABS: TabDef[] = [
   { id: 'branding', label: 'Branding', icon: Palette },
   { id: 'domain', label: 'Domain', icon: Globe },
   { id: 'team', label: 'Team', icon: Users },
+  { id: 'billing', label: 'Billing', icon: CreditCard, adminOnly: true },
   { id: 'organization', label: 'Organization', icon: Building2, adminOnly: true },
 ]
 
