@@ -135,7 +135,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
     .eq('profile_id', user.id)
 
   const hasIntegrations = connections && connections.length > 0
-  const activeIntegrations = connections?.filter(c => c.status === 'active') || []
+  const activeIntegrations = connections?.filter((c: any) => c.status === 'active') || []
 
   // 2. Fetch Outstanding Invoices — try org-scoped first
   let totalOutstandingCents = 0
@@ -147,7 +147,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
         .eq('organization_id', orgId)
         .eq('status', 'open')
       if (orgInvoices) {
-        totalOutstandingCents = orgInvoices.reduce((acc, inv) => acc + Number(inv.amount_due_cents), 0)
+        totalOutstandingCents = orgInvoices.reduce((acc: number, inv: any) => acc + Number(inv.amount_due_cents), 0)
       }
     } catch { /* fall through */ }
   }
@@ -168,7 +168,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
       .select('amount_due_cents')
       .eq('profile_id', user.id)
       .eq('status', 'open')
-    totalOutstandingCents = openInvoices?.reduce((acc, inv) => acc + Number(inv.amount_due_cents), 0) || 0
+    totalOutstandingCents = openInvoices?.reduce((acc: number, inv: any) => acc + Number(inv.amount_due_cents), 0) || 0
   }
 
   // 3. Fetch Total Recovered — org-scoped
@@ -185,7 +185,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
       .from('recoveries')
       .select('amount_recovered_cents')
       .eq('profile_id', user.id)
-    totalRecoveredCents = recoveries?.reduce((acc, rec) => acc + Number(rec.amount_recovered_cents), 0) || 0
+    totalRecoveredCents = recoveries?.reduce((acc: number, rec: any) => acc + Number(rec.amount_recovered_cents), 0) || 0
   }
 
   // 4. Recovery Rate
@@ -283,7 +283,7 @@ export default async function DashboardPage(props: DashboardPageProps) {
           <p className="text-slate-500 mt-1">
             {orgId ? 'Organization-scoped view.' : ''}
             {activeIntegrations.length > 0
-              ? ` Connected to ${activeIntegrations.map(i => i.provider).join(' & ')}.`
+              ? ` Connected to ${activeIntegrations.map((i: any) => i.provider).join(' & ')}.`
               : ' Welcome back to Reclaim AI.'}
           </p>
         </div>

@@ -9,7 +9,177 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env
   ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummyPlaceholderTokenKey.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3MTk1OTgsImV4cCI6MjA5NzI5NTk5OH0.dummySignature'
 
+const isMockMode = !process.env.NEXT_PUBLIC_SUPABASE_URL || 
+  process.env.NEXT_PUBLIC_SUPABASE_URL === 'your-supabase-url' || 
+  process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder-project.supabase.co')
+
+function createMockQueryBuilder(table: string, options: { isSingle?: boolean } = {}) {
+  const chain: any = {
+    then: (onfulfilled: any) => {
+      let data: any = []
+      if (table === 'invoices') {
+        data = [
+          {
+            id: 'mock-inv-1',
+            invoice_number: 'INV-2026-001',
+            amount_cents: 125000,
+            currency: 'usd',
+            status: 'unpaid',
+            issued_at: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
+            clients: { name: 'Acme Corp' },
+            dunning_campaigns: { id: 'mock-camp-1', status: 'active' }
+          },
+          {
+            id: 'mock-inv-2',
+            invoice_number: 'INV-2026-002',
+            amount_cents: 450000,
+            currency: 'usd',
+            status: 'paid',
+            issued_at: new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString(),
+            clients: { name: 'Stark Industries' },
+            dunning_campaigns: { id: 'mock-camp-2', status: 'completed' }
+          }
+        ]
+      } else if (table === 'profiles') {
+        data = [
+          {
+            id: 'mock-user-id',
+            organization_id: 'mock-org-id',
+            name: 'Demo User',
+            email: 'test@example.com'
+          }
+        ]
+      } else if (table === 'organizations') {
+        data = [
+          {
+            id: 'mock-org-id',
+            name: 'Demo Organization',
+            plan_tier: 'standard',
+            max_members: 5
+          }
+        ]
+      } else if (table === 'oauth_connections') {
+        data = [
+          {
+            provider: 'stripe',
+            tenant_name: 'Stripe Live Integration',
+            last_synced_at: new Date().toISOString()
+          },
+          {
+            provider: 'quickbooks',
+            tenant_name: 'QuickBooks Online Sandbox',
+            last_synced_at: new Date().toISOString()
+          }
+        ]
+      } else if (table === 'sequences') {
+        data = [
+          {
+            id: 'mock-seq-1',
+            name: 'Standard Collections Sequence',
+            description: 'Gentle, professional dunning email sequence designed for freelance collections.',
+            is_default: true,
+            is_active: true,
+            created_at: new Date().toISOString()
+          }
+        ]
+      } else if (table === 'sequence_steps') {
+        data = [
+          {
+            id: 'mock-step-1',
+            sequence_id: 'mock-seq-1',
+            step_number: 1,
+            delay_days: 1,
+            email_subject: 'Invoice {{invoice_number}} is due',
+            email_body: 'Hi {{customer_name}}, the invoice {{invoice_number}} for {{amount_due}} is due today. Please make payment.'
+          },
+          {
+            id: 'mock-step-2',
+            sequence_id: 'mock-seq-1',
+            step_number: 2,
+            delay_days: 3,
+            email_subject: 'Reminder: Invoice {{invoice_number}}',
+            email_body: 'Hi {{customer_name}}, this is a quick reminder that invoice {{invoice_number}} is overdue.'
+          }
+        ]
+      }
+      
+      const result = options.isSingle ? (data[0] || null) : data
+      return Promise.resolve(onfulfilled({ data: result, error: null }))
+    }
+  }
+
+  return new Proxy(chain, {
+    get(target, prop) {
+      if (prop === 'then') {
+        return target.then
+      }
+      if (prop === 'single') {
+        return () => createMockQueryBuilder(table, { isSingle: true })
+      }
+      return () => createMockQueryBuilder(table, options)
+    }
+  })
+}
+
+async function createMockSupabaseServerClient() {
+  const cookieStore = await cookies()
+  const emailCookie = cookieStore.get('mock_user_email')
+  const email = emailCookie ? emailCookie.value : 'test@example.com'
+
+  return {
+    auth: {
+      signUp: async ({ email: signupEmail }: { email: string }) => {
+        cookieStore.set('mock_user_email', signupEmail)
+        return { data: { user: { id: 'mock-user-id', email: signupEmail } }, error: null }
+      },
+      signInWithPassword: async ({ email: loginEmail }: { email: string }) => {
+        cookieStore.set('mock_user_email', loginEmail)
+        return { data: { user: { id: 'mock-user-id', email: loginEmail } }, error: null }
+      },
+      signOut: async () => {
+        cookieStore.delete('mock_user_email')
+        return { error: null }
+      },
+      getUser: async () => {
+        return { data: { user: { id: 'mock-user-id', email } }, error: null }
+      },
+      getSession: async () => {
+        return {
+          data: {
+            session: {
+              user: { id: 'mock-user-id', email },
+              access_token: 'mock-token'
+            }
+          },
+          error: null
+        }
+      },
+      onAuthStateChange: (callback: any) => {
+        callback('SIGNED_IN', { user: { id: 'mock-user-id', email } })
+        return { data: { subscription: { unsubscribe: () => {} } } }
+      }
+    },
+    from: (table: string) => createMockQueryBuilder(table),
+    channel: (name: string) => {
+      const mockChannel = {
+        on: (event: string, filter: any, callback: any) => {
+          return mockChannel
+        },
+        subscribe: () => {
+          return mockChannel
+        }
+      }
+      return mockChannel
+    },
+    removeChannel: (channel: any) => {},
+  }
+}
+
 export async function createClient() {
+  if (isMockMode) {
+    return createMockSupabaseServerClient() as any
+  }
+
   const cookieStore = await cookies()
 
   return createServerClient(

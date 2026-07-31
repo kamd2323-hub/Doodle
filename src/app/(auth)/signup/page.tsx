@@ -17,6 +17,10 @@ export default function SignupPage() {
   const router = useRouter()
   const supabase = useSupabase()
 
+  const isMockMode = !process.env.NEXT_PUBLIC_SUPABASE_URL || 
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'your-supabase-url' || 
+    process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder-project.supabase.co')
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -40,6 +44,27 @@ export default function SignupPage() {
   }
 
   if (success) {
+    if (isMockMode) {
+      return (
+        <Card className="border-0 shadow-none">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-center">Registration Complete!</CardTitle>
+            <CardDescription className="text-center">
+              Reclaim AI is running in <strong>Demo/Mock Mode</strong>. No email verification is required for this sandbox.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => {
+              router.push('/')
+              router.refresh()
+            }}>
+              Go directly to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      )
+    }
+
     return (
       <Card className="border-0 shadow-none">
         <CardHeader>

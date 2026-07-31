@@ -28,7 +28,7 @@ export async function getTotalRecoveredCents(): Promise<number> {
     return 0;
   }
 
-  return recoveries?.reduce((sum, r) => sum + Number(r.amount_recovered_cents), 0) || 0;
+  return recoveries?.reduce((sum: number, r: any) => sum + Number(r.amount_recovered_cents), 0) || 0;
 }
 
 /**

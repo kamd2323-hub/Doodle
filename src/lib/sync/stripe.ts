@@ -22,10 +22,7 @@ export class StripeSyncService implements ProviderSyncService {
     try {
       console.log('StripeSyncService: Initializing real Stripe client with access token.');
       
-      const stripe = new Stripe(accessToken, {
-        apiVersion: '2023-10-16' as any, // Use stable compatible version
-        typescript: true,
-      });
+      const stripe = new Stripe(accessToken);
 
       const clients: SyncedClient[] = [];
       const invoices: SyncedInvoice[] = [];

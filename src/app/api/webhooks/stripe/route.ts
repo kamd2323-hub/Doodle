@@ -13,7 +13,7 @@ function getStripe() {
   if (!key || key === 'your-stripe-secret-key') {
     return null;
   }
-  return new Stripe(key, { apiVersion: '2025-02-11' as any });
+  return new Stripe(key);
 }
 
 /**

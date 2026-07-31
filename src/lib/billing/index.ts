@@ -63,7 +63,7 @@ export function getStripeClient(): Stripe | null {
   if (!key || key === 'your-stripe-secret-key' || key === 'sk_test_placeholder_key') {
     return null
   }
-  return new Stripe(key, { apiVersion: '2025-02-11' as any })
+  return new Stripe(key)
 }
 
 // ─── Subscription Management ─────────────────────────────────────────────────
