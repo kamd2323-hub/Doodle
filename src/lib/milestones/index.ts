@@ -42,7 +42,7 @@ export async function getUnnotifiedMilestones(totalCents: number): Promise<typeo
     .from('recovery_milestones')
     .select('milestone_key');
 
-  const notifiedKeys = new Set(notified?.map(n => n.milestone_key) || []);
+  const notifiedKeys = new Set(notified?.map((n: { milestone_key: string }) => n.milestone_key) || []);
 
   return MILESTONES.filter(
     m => totalCents >= m.cents && !notifiedKeys.has(m.key)
