@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { createClient } from '@/lib/supabase-server'
+import { buildAnalyticsSnapshot } from '@/lib/analytics'
 import { MonthlyRecoveryChart, CampaignStatusChart, TrendIndicator } from '@/components/dashboard/analytics-charts'
 import {
   DollarSign,
@@ -7,10 +8,10 @@ import {
   Target,
   Zap,
   ArrowUpRight,
-  Clock,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import * as fs from 'fs'
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -27,24 +28,68 @@ function formatCompact(cents: number): string {
   return `$${dollars.toFixed(0)}`
 }
 
-function getLast6Months(): string[] {
-  const months: string[] = []
-  const now = new Date()
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    months.push(d.toLocaleString('en-US', { month: 'short' }))
-  }
-  return months
+const ORG_STORE_PATH = '/tmp/mock_organization_data.json'
+
+function loadMockStore(): any {
+  try {
+    if (fs.existsSync(ORG_STORE_PATH)) {
+      return JSON.parse(fs.readFileSync(ORG_STORE_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return { organizations: [], members: [] }
 }
 
 // ── Page ────────────────────────────────────────────────────────────────
 
 export default async function AnalyticsPage() {
   const supabase = await createClient()
+  const isMock = !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'your-supabase-url' ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder-project.supabase.co'
 
-  const { data: { user } } = await supabase.auth.getUser()
+  let orgId: string | null = null
 
-  if (!user) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+          <h1 className="text-2xl font-bold">Please log in</h1>
+          <p className="text-slate-500">You need to be logged in to view analytics.</p>
+          <Button asChild>
+            <Link href="/login">Login</Link>
+          </Button>
+        </div>
+      )
+    }
+
+    // Resolve organization_id
+    if (!isMock) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('organization_id')
+          .eq('id', user.id)
+          .single()
+        if (profile?.organization_id) orgId = profile.organization_id
+      } catch { /* fall through */ }
+    }
+
+    if (!orgId) {
+      const mockStore = loadMockStore()
+      const member = mockStore.members?.find(
+        (m: any) => m.profile_id === user.id && m.status === 'active'
+      )
+      if (member) orgId = member.organization_id
+    }
+
+    if (!orgId) {
+      // Last resort: use mock org
+      const mockStore = loadMockStore()
+      orgId = mockStore.organizations?.[0]?.id || '00000000-0000-0000-0000-000000000001'
+    }
+
+  } catch {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <h1 className="text-2xl font-bold">Please log in</h1>
@@ -56,101 +101,35 @@ export default async function AnalyticsPage() {
     )
   }
 
-  // ── Fetch data ──────────────────────────────────────────────────────
+  // ── Fetch analytics via backend library ────────────────────────────────
+  const snapshot = await buildAnalyticsSnapshot(orgId)
+  const { summary, monthly, campaignBreakdown, emailPerformance, recentRecoveries } = snapshot
 
-  // 1. Total recovered
-  const { data: recoveries } = await supabase
-    .from('recoveries')
-    .select('amount_recovered_cents, recovered_at')
-    .eq('profile_id', user.id)
-    .order('recovered_at', { ascending: false })
+  // Previous month for trend comparison
+  const prevMonthIdx = monthly.length >= 2 ? monthly.length - 2 : 0
+  const prevMonthRecovered = monthly.length >= 2
+    ? monthly[prevMonthIdx].recoveredCents
+    : 0
 
-  const totalRecoveredCents = recoveries?.reduce(
-    (sum: number, r: any) => sum + Number(r.amount_recovered_cents || 0), 0
-  ) || 0
+  // Monthly chart data
+  const monthlyData = monthly.map(m => ({
+    month: m.month,
+    recovered: m.recoveredCents,
+    sent: m.emailsSent,
+  }))
 
-  // 2. Campaign stats
-  const { data: allCampaigns } = await supabase
-    .from('dunning_campaigns')
-    .select('status')
-    .eq('profile_id', user.id)
-
-  const totalCampaigns = allCampaigns?.length || 0
-  const recoveredCount = allCampaigns?.filter((c: any) => c.status === 'recovered').length || 0
-  const activeCount = allCampaigns?.filter((c: any) => c.status === 'active').length || 0
-  const failedCount = allCampaigns?.filter((c: any) => c.status === 'failed').length || 0
-  const pendingCount = totalCampaigns - recoveredCount - activeCount - failedCount
-
-  // 3. Email logs
-  const { data: emailLogs } = await supabase
-    .from('dunning_email_logs')
-    .select('status, sent_at')
-    .order('sent_at', { ascending: false })
-
-  const totalEmails = emailLogs?.length || 0
-  const deliveredEmails = emailLogs?.filter((e: any) => e.status === 'sent' || e.status === 'delivered').length || 0
-  const openedEmails = emailLogs?.filter((e: any) => e.status === 'opened').length || 0
-  const bouncedEmails = emailLogs?.filter((e: any) => e.status === 'bounced').length || 0
-  const deliveryRate = totalEmails > 0 ? (deliveredEmails / totalEmails * 100) : 0
-
-  // 4. Monthly data — build from recoveries
-  const monthLabels = getLast6Months()
-  const now = new Date()
-  const monthlyData = monthLabels.map(label => {
-    // Count recoveries for this month
-    const monthRecoveries = recoveries?.filter((r: any) => {
-      if (!r.recovered_at) return false
-      const d = new Date(r.recovered_at)
-      return d.toLocaleString('en-US', { month: 'short' }) === label &&
-        d.getFullYear() === now.getFullYear()
-    }) || []
-    const recovered = monthRecoveries.reduce((sum: number, r: any) => sum + Number(r.amount_recovered_cents || 0), 0)
-
-    // Count emails sent this month
-    const monthEmails = emailLogs?.filter((e: any) => {
-      if (!e.sent_at) return false
-      const d = new Date(e.sent_at)
-      return d.toLocaleString('en-US', { month: 'short' }) === label &&
-        d.getFullYear() === now.getFullYear()
-    }) || []
-
-    return { month: label, recovered, sent: monthEmails.length }
-  })
-
-  // 5. Recovery rate
-  const recoveryRate = totalCampaigns > 0 ? (recoveredCount / totalCampaigns * 100) : 0
-
-  // 6. Top recovered invoices
-  const { data: topRecoveries } = await supabase
-    .from('recoveries')
-    .select(`
-      amount_recovered_cents,
-      recovered_at,
-      invoices (
-        invoice_number,
-        clients ( name )
-      )
-    `)
-    .eq('profile_id', user.id)
-    .order('amount_recovered_cents', { ascending: false })
-    .limit(5)
-
-  // 7. Previous month data for trend
-  const prevMonthLabel = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    .toLocaleString('en-US', { month: 'short' })
-  const prevMonthRecovered = recoveries?.filter((r: any) => {
-    if (!r.recovered_at) return false
-    const d = new Date(r.recovered_at)
-    return d.toLocaleString('en-US', { month: 'short' }) === prevMonthLabel
-  })?.reduce((sum: number, r: any) => sum + Number(r.amount_recovered_cents || 0), 0) || 0
-
-  // ── Campaign status data for donut ─────────────────────────────────
+  // Campaign status donut data
   const campaignStatusData = [
-    { label: 'Recovered', count: recoveredCount, color: '#22c55e' },
-    { label: 'Active', count: activeCount, color: '#6366f1' },
-    { label: 'Failed', count: failedCount, color: '#ef4444' },
-    { label: 'Pending', count: pendingCount, color: '#f59e0b' },
+    { label: 'Recovered', count: campaignBreakdown.recovered, color: '#22c55e' },
+    { label: 'Active', count: campaignBreakdown.active, color: '#6366f1' },
+    { label: 'Failed', count: campaignBreakdown.failed, color: '#ef4444' },
+    { label: 'Paused', count: campaignBreakdown.paused, color: '#f59e0b' },
+    { label: 'Completed', count: campaignBreakdown.completed - campaignBreakdown.recovered, color: '#8b5cf6' },
   ].filter(s => s.count > 0)
+
+  const pendingCount = summary.totalCampaigns -
+    summary.activeCampaigns - summary.recoveredCampaigns - summary.failedCampaigns -
+    campaignBreakdown.paused - (campaignBreakdown.completed - campaignBreakdown.recovered)
 
   // ── Render ──────────────────────────────────────────────────────────
 
@@ -176,9 +155,9 @@ export default async function AnalyticsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{formatCurrency(totalRecoveredCents)}</div>
+            <div className="text-2xl font-bold text-slate-900">{formatCurrency(summary.totalRecoveredCents)}</div>
             <div className="flex items-center gap-2 mt-1">
-              <TrendIndicator current={totalRecoveredCents} previous={prevMonthRecovered} />
+              <TrendIndicator current={summary.totalRecoveredCents} previous={prevMonthRecovered} />
               <span className="text-xs text-slate-400">vs last month</span>
             </div>
           </CardContent>
@@ -192,9 +171,9 @@ export default async function AnalyticsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{recoveryRate.toFixed(1)}%</div>
+            <div className="text-2xl font-bold text-slate-900">{summary.recoveryRate}%</div>
             <p className="text-xs text-slate-400 mt-1">
-              {recoveredCount} of {totalCampaigns} campaigns
+              {summary.recoveredCampaigns} of {summary.totalCampaigns} campaigns
             </p>
           </CardContent>
         </Card>
@@ -207,9 +186,9 @@ export default async function AnalyticsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{totalEmails}</div>
+            <div className="text-2xl font-bold text-slate-900">{summary.totalEmailsSent}</div>
             <p className="text-xs text-slate-400 mt-1">
-              {deliveryRate.toFixed(1)}% delivery rate
+              {summary.deliveryRate}% delivery rate
             </p>
           </CardContent>
         </Card>
@@ -222,9 +201,9 @@ export default async function AnalyticsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{activeCount}</div>
+            <div className="text-2xl font-bold text-slate-900">{summary.activeCampaigns}</div>
             <p className="text-xs text-slate-400 mt-1">
-              {pendingCount} pending
+              {pendingCount > 0 ? `${pendingCount} pending` : `${summary.failedCampaigns} failed`}
             </p>
           </CardContent>
         </Card>
@@ -246,27 +225,27 @@ export default async function AnalyticsPage() {
             <CardTitle className="text-lg font-semibold">Campaign Status</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-center">
-            <CampaignStatusChart data={campaignStatusData} total={totalCampaigns} />
+            <CampaignStatusChart data={campaignStatusData} total={summary.totalCampaigns} />
           </CardContent>
         </Card>
       </div>
 
-      {/* Bottom Row: Top Recoveries + Email Performance */}
+      {/* Bottom Row: Recent Recoveries + Email Performance */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Top Recoveries */}
+        {/* Recent Recoveries */}
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg font-semibold">Top Recoveries</CardTitle>
+            <CardTitle className="text-lg font-semibold">Recent Recoveries</CardTitle>
             <Link href="/invoices" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1">
               View all <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
           </CardHeader>
           <CardContent>
-            {topRecoveries && topRecoveries.length > 0 ? (
+            {recentRecoveries.length > 0 ? (
               <div className="space-y-3">
-                {topRecoveries.map((r: any, i: number) => (
+                {recentRecoveries.map((r, i) => (
                   <div
-                    key={i}
+                    key={r.id || i}
                     className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0"
                   >
                     <div className="flex items-center gap-3">
@@ -275,17 +254,17 @@ export default async function AnalyticsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-800">
-                          {r.invoices?.clients?.name || r.invoices?.invoice_number || 'Unknown'}
+                          {r.clientName}
                         </p>
                         <p className="text-xs text-slate-400">
-                          {r.invoices?.invoice_number} &bull; {r.recovered_at
-                            ? new Date(r.recovered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          {r.invoiceNumber} &bull; {r.recoveredAt
+                            ? new Date(r.recoveredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                             : '—'}
                         </p>
                       </div>
                     </div>
                     <span className="text-sm font-semibold text-emerald-600">
-                      {formatCurrency(Number(r.amount_recovered_cents))}
+                      {formatCurrency(r.amountCents)}
                     </span>
                   </div>
                 ))}
@@ -310,13 +289,13 @@ export default async function AnalyticsPage() {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-slate-600">Delivered</span>
                   <span className="text-sm font-semibold text-slate-800">
-                    {deliveredEmails} / {totalEmails}
+                    {emailPerformance.sent} / {emailPerformance.total}
                   </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
                   <div
                     className="bg-emerald-500 h-2 rounded-full transition-all"
-                    style={{ width: `${totalEmails > 0 ? (deliveredEmails / totalEmails * 100) : 0}%` }}
+                    style={{ width: `${emailPerformance.deliveryRate}%` }}
                   />
                 </div>
               </div>
@@ -326,13 +305,13 @@ export default async function AnalyticsPage() {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-slate-600">Opened</span>
                   <span className="text-sm font-semibold text-slate-800">
-                    {openedEmails} / {deliveredEmails || totalEmails}
+                    {emailPerformance.opened} / {emailPerformance.sent || emailPerformance.total}
                   </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
                   <div
                     className="bg-indigo-500 h-2 rounded-full transition-all"
-                    style={{ width: `${(deliveredEmails || totalEmails) > 0 ? (openedEmails / (deliveredEmails || totalEmails) * 100) : 0}%` }}
+                    style={{ width: `${emailPerformance.openRate}%` }}
                   />
                 </div>
               </div>
@@ -342,13 +321,13 @@ export default async function AnalyticsPage() {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-slate-600">Bounced</span>
                   <span className="text-sm font-semibold text-slate-800">
-                    {bouncedEmails} / {totalEmails}
+                    {emailPerformance.bounced} / {emailPerformance.total}
                   </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
                   <div
                     className="bg-red-400 h-2 rounded-full transition-all"
-                    style={{ width: `${totalEmails > 0 ? (bouncedEmails / totalEmails * 100) : 0}%` }}
+                    style={{ width: `${emailPerformance.total > 0 ? (emailPerformance.bounced / emailPerformance.total * 100).toFixed(1) : 0}%` }}
                   />
                 </div>
               </div>
@@ -357,13 +336,13 @@ export default async function AnalyticsPage() {
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
                 <div className="text-center">
                   <div className="text-lg font-bold text-slate-800">
-                    {totalEmails > 0 ? (deliveredEmails / totalEmails * 100).toFixed(1) : 0}%
+                    {emailPerformance.deliveryRate}%
                   </div>
                   <div className="text-xs text-slate-400">Delivery Rate</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-slate-800">
-                    {deliveredEmails > 0 ? (openedEmails / deliveredEmails * 100).toFixed(1) : 0}%
+                    {emailPerformance.openRate}%
                   </div>
                   <div className="text-xs text-slate-400">Open Rate</div>
                 </div>
