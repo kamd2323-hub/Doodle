@@ -9,7 +9,8 @@ import {
   Mail,
   Activity,
   Settings,
-  LogOut
+  LogOut,
+  BarChart3
 } from 'lucide-react'
 import { useSupabase } from '@/hooks/use-supabase'
 import { useRouter } from 'next/navigation'
@@ -17,6 +18,7 @@ import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { name: 'Invoices', href: '/invoices', icon: FileText },
   { name: 'Campaigns', href: '/campaigns', icon: Activity },
   { name: 'Sequences', href: '/sequences', icon: Mail },
