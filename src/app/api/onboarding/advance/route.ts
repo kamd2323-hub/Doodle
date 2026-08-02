@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       else orgId = '00000000-0000-0000-0000-000000000001'
     }
 
-    const state = await advanceOnboardingStep(userId, orgId)
+    const state = await advanceOnboardingStep(userId, orgId ?? "")
 
     return NextResponse.json(state)
   } catch (error: any) {
