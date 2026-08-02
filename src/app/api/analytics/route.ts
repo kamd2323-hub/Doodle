@@ -81,7 +81,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const snapshot = await buildAnalyticsSnapshot(orgId)
+    const snapshot = await buildAnalyticsSnapshot(orgId ?? "")
 
     return NextResponse.json(snapshot)
   } catch (error: any) {

@@ -102,7 +102,7 @@ export default async function AnalyticsPage() {
   }
 
   // ── Fetch analytics via backend library ────────────────────────────────
-  const snapshot = await buildAnalyticsSnapshot(orgId)
+  const snapshot = await buildAnalyticsSnapshot(orgId ?? "")
   const { summary, monthly, campaignBreakdown, emailPerformance, recentRecoveries } = snapshot
 
   // Previous month for trend comparison
