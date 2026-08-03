@@ -24,6 +24,7 @@ import {
   X
 } from "lucide-react"
 import { useSupabase } from "@/hooks/use-supabase"
+import { getDefaultStepFields } from "@/lib/dunning/default-templates"
 
 interface Sequence {
   id: string
@@ -55,15 +56,25 @@ export default function SequencesPage() {
 
   const sampleData = {
     customer_name: 'John Doe',
+    company_name: 'Acme Corp',
     invoice_number: 'INV-2024-001',
-    amount_due: '$1,250.00'
+    amount_due: '$1,250.00',
+    due_date: 'July 14, 2026',
+    payment_link: '[Payment Link]',
+    organization_name: 'Your Company',
+    from_name: 'Jane',
   }
 
   const replacePlaceholders = (text: string) => {
     let result = text
     result = result.replace(/\{\{customer_name\}\}/g, sampleData.customer_name)
+    result = result.replace(/\{\{company_name\}\}/g, sampleData.company_name)
     result = result.replace(/\{\{invoice_number\}\}/g, sampleData.invoice_number)
     result = result.replace(/\{\{amount_due\}\}/g, sampleData.amount_due)
+    result = result.replace(/\{\{due_date\}\}/g, sampleData.due_date)
+    result = result.replace(/\{\{payment_link\}\}/g, sampleData.payment_link)
+    result = result.replace(/\{\{organization_name\}\}/g, sampleData.organization_name)
+    result = result.replace(/\{\{from_name\}\}/g, sampleData.from_name)
     return result
   }
 
@@ -117,12 +128,15 @@ export default function SequencesPage() {
       ? Math.max(...steps.map(s => s.step_number)) + 1 
       : 1
     
+    // Pre-fill with default template if available
+    const defaults = getDefaultStepFields(nextStepNumber)
+    
     setEditingStep({
       sequence_id: selectedSequence.id,
       step_number: nextStepNumber,
-      delay_days: 1,
-      email_subject: '',
-      email_body: ''
+      delay_days: defaults.delayDays,
+      email_subject: defaults.emailSubject,
+      email_body: defaults.emailBody,
     })
   }
 
@@ -206,6 +220,56 @@ export default function SequencesPage() {
     }
   }
 
+  const handleAddSequenceWithDefaults = async () => {
+    const name = prompt('Enter sequence name (or leave blank for "Default Dunning Sequence"):')
+    if (name === null) return // cancelled
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const seqName = name || 'Default Dunning Sequence'
+
+    const { data, error } = await supabase
+      .from('sequences')
+      .insert([{ 
+        name: seqName, 
+        profile_id: user.id,
+        is_active: true,
+        is_default: true,
+      }])
+      .select()
+
+    if (error) {
+      alert('Error creating sequence: ' + error.message)
+      return
+    }
+
+    if (data) {
+      const seqId = data[0].id
+
+      // Seed all 3 default steps
+      const defaults = await import('@/lib/dunning/default-templates')
+      const steps = defaults.DEFAULT_TEMPLATES.map(t => ({
+        sequence_id: seqId,
+        step_number: t.stepNumber,
+        delay_days: t.delayDays,
+        email_subject: t.emailSubject,
+        email_body: t.emailBody,
+      }))
+
+      const { error: stepError } = await supabase
+        .from('sequence_steps')
+        .insert(steps)
+
+      if (stepError) {
+        alert('Error creating default steps: ' + stepError.message)
+      }
+
+      fetchSequences()
+      setSelectedSequence(data[0])
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -221,9 +285,14 @@ export default function SequencesPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Email Sequences</h1>
           <p className="text-slate-500">Configure your automated invoice recovery workflow.</p>
         </div>
-        <Button onClick={handleAddSequence} variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
-          <Plus className="mr-2 h-4 w-4" /> New Sequence
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleAddSequenceWithDefaults} variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+            <Plus className="mr-2 h-4 w-4" /> Default Sequence
+          </Button>
+          <Button onClick={handleAddSequence} variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+            <Plus className="mr-2 h-4 w-4" /> New Empty Sequence
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
@@ -383,7 +452,7 @@ export default function SequencesPage() {
                       onChange={(e) => setEditingStep({...editingStep, email_body: e.target.value})}
                       placeholder="Write your email template here... (Markdown supported)"
                     />
-                    <p className="text-[10px] text-slate-400">Placeholders: {"{{customer_name}}, {{invoice_number}}, {{amount_due}}"}</p>
+                    <p className="text-[10px] text-slate-400">Placeholders: {"{{customer_name}}, {{company_name}}, {{invoice_number}}, {{amount_due}}, {{due_date}}, {{payment_link}}, {{organization_name}}, {{from_name}}"}</p>
                   </div>
                 </>
               ) : (
