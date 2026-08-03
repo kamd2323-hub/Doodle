@@ -317,6 +317,12 @@ export default async function LandingPage() {
             ) : (
               <>
                 <Link
+                  href="/demo"
+                  className="hidden sm:inline-flex text-sm font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                >
+                  Try Demo
+                </Link>
+                <Link
                   href="/login"
                   className="hidden sm:inline-flex text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
                 >
@@ -362,6 +368,11 @@ export default async function LandingPage() {
                 <Link href="/signup">
                   Start your free trial
                   <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="h-11 border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-7 text-sm font-medium">
+                <Link href="/demo">
+                  Try the demo
                 </Link>
               </Button>
               <Button asChild variant="outline" className="h-11 border-slate-300 text-slate-700 hover:bg-slate-50 px-7 text-sm font-medium">
