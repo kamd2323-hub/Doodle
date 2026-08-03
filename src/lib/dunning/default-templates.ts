@@ -1,8 +1,13 @@
 /**
  * Default dunning email templates for Reclaim AI.
  *
- * These are the recommended 3-step sequence: Friendly Reminder (Day 1),
+ * Core 3-step sequence (enabled by default): Friendly Reminder (Day 1),
  * Direct Follow-Up (Day 14), and Final Notice (Day 30).
+ *
+ * Optional Step 1.5 (Day 7 Warm Check-In) — off by default, user opt-in
+ * required. Only recommended for high-value retainer/repeat-client
+ * relationships. Distinctive format: no greeting, no payment link,
+ * no organisation signature, intentionally short (64 words).
  *
  * Templates use {{placeholder}} syntax; the existing personalizeFallback()
  * in src/lib/ai/personalization.ts handles all replacements.
@@ -15,6 +20,8 @@ export interface DefaultTemplate {
   delayDays: number
   emailSubject: string
   emailBody: string
+  /** If true, this template is off by default and requires explicit user opt-in. */
+  isOptional?: boolean
 }
 
 /**
@@ -44,9 +51,37 @@ Thanks,
 }
 
 /**
+ * Step 1.5 — Warm Check-In (Day 7 after due date, OPTIONAL)
+ *
+ * Intentionally a different shape from the other three: no greeting,
+ * no payment link, no {{organization_name}} signature — just a short,
+ * conversational check-in that feels like a Slack DM from a colleague.
+ *
+ * OFF BY DEFAULT. Only recommended for high-value retainer/repeat-client
+ * relationships where the cost of a Day 30 escalation is genuinely high.
+ * Users must explicitly opt in to include this step.
+ *
+ * Source: marketing doc Section 4.
+ */
+export const STEP_1_5_TEMPLATE: DefaultTemplate = {
+  stepNumber: 1.5,
+  delayDays: 7,
+  isOptional: true,
+  emailSubject: 'Just checking — invoice {{invoice_number}}',
+  emailBody: `Hi {{customer_name}},
+
+Just wanted to nudge this one — invoice {{invoice_number}} ({{amount_due}}) is still showing open on my end. I know how easy these things get buried under the next twenty fires.
+
+If something's blocking it on your side, just hit reply and let me know. I'd rather help unstick it than send another formal reminder.
+
+Thanks,
+{{from_name}}`,
+}
+
+/**
  * Step 2 — Direct Follow-Up (Day 14 after due date)
  * More direct, professional. Names the specific invoice + amount.
- * References Step 1.
+ * References prior contact.
  */
 export const STEP2_DIRECT_FOLLOWUP: DefaultTemplate = {
   stepNumber: 2,
@@ -100,36 +135,57 @@ Thanks,
 }
 
 /**
- * Ordered array of all default templates (steps 1–3).
- * Use this when creating a new sequence.
+ * All templates including optional ones (steps 1, 1.5, 2, 3).
+ * Use this for lookup — getDefaultTemplate searches this array.
  */
-export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
+export const ALL_TEMPLATES: DefaultTemplate[] = [
   STEP1_FRIENDLY_REMINDER,
+  STEP_1_5_TEMPLATE,
   STEP2_DIRECT_FOLLOWUP,
   STEP3_FINAL_NOTICE,
 ]
 
 /**
- * Get the default template for a given step number (1-based).
- * Returns null if the step number is beyond the available defaults.
+ * Default (non-optional) templates only: steps 1, 2, 3.
+ * This is what gets seeded when a user creates a "Default Sequence."
+ * Step 1.5 is excluded — user must opt in explicitly.
+ */
+export const DEFAULT_TEMPLATES: DefaultTemplate[] = ALL_TEMPLATES.filter(
+  t => !t.isOptional,
+)
+
+/**
+ * Optional templates that users can explicitly add.
+ * Currently just Step 1.5 (Day 7 Warm Check-In).
+ */
+export const OPTIONAL_TEMPLATES: DefaultTemplate[] = ALL_TEMPLATES.filter(
+  t => t.isOptional,
+)
+
+/**
+ * Get the template for a given step number (1, 1.5, 2, or 3).
+ * Searches ALL_TEMPLATES so optional steps are findable.
+ * Returns null if the step number has no template.
  */
 export function getDefaultTemplate(stepNumber: number): DefaultTemplate | null {
-  return DEFAULT_TEMPLATES.find(t => t.stepNumber === stepNumber) || null
+  return ALL_TEMPLATES.find(t => t.stepNumber === stepNumber) || null
 }
 
 /**
- * Get the email subject and body defaults for a given step number.
- * Convenience function for pre-filling a new step form.
+ * Get the email subject, body, delay, and optional flag for a given step.
+ * Convenience for pre-filling a new step form.
  */
 export function getDefaultStepFields(stepNumber: number): {
   emailSubject: string
   emailBody: string
   delayDays: number
+  isOptional: boolean
 } {
   const template = getDefaultTemplate(stepNumber)
   return {
     emailSubject: template?.emailSubject || '',
     emailBody: template?.emailBody || '',
     delayDays: template?.delayDays || 1,
+    isOptional: template?.isOptional || false,
   }
 }
