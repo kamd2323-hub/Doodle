@@ -126,6 +126,15 @@ export async function GET(request: Request) {
     // Always mirror/save to local fallback store to support mock mode completely
     saveToFallbackStore(connectionData)
 
+    // Seamless demo-to-real migration: if user had a demo session,
+    // seed their account with the default dunning sequence
+    try {
+      const { migrateFromDemo } = await import('@/lib/demo/migrate')
+      await migrateFromDemo(request, userId)
+    } catch (e) {
+      console.warn('[StripeCallback] Demo migration skipped:', e)
+    }
+
     // Redirect to the settings page with status
     return NextResponse.redirect(`${requestUrl.origin}/settings?integration=stripe&status=success`)
   } catch (error: any) {
