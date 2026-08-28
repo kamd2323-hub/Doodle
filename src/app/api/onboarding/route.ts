@@ -25,7 +25,7 @@ function loadMockStore(): any {
 export async function GET(request: Request) {
   try {
     let userId = 'mock-user-id'
-    let orgId: string | null = null
+    let orgId: string = '00000000-0000-0000-0000-000000000001'
     let supabase: any = null
 
     const isMock = !process.env.NEXT_PUBLIC_SUPABASE_URL ||
