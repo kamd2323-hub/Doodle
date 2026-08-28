@@ -24,6 +24,7 @@ import {
   X
 } from "lucide-react"
 import { useSupabase } from "@/hooks/use-supabase"
+import { DEFAULT_TEMPLATES, getDefaultStepFields } from "@/lib/dunning/default-templates"
 
 interface Sequence {
   id: string
@@ -117,12 +118,16 @@ export default function SequencesPage() {
       ? Math.max(...steps.map(s => s.step_number)) + 1 
       : 1
     
+    // Pre-fill from default templates when the step number matches a known template
+    const defaults = getDefaultStepFields(nextStepNumber)
+    const hasTemplate = defaults.email_subject !== ''
+    
     setEditingStep({
       sequence_id: selectedSequence.id,
       step_number: nextStepNumber,
-      delay_days: 1,
-      email_subject: '',
-      email_body: ''
+      delay_days: hasTemplate ? defaults.delay_days : 1,
+      email_subject: hasTemplate ? defaults.email_subject : '',
+      email_body: hasTemplate ? defaults.email_body : ''
     })
   }
 
@@ -201,8 +206,28 @@ export default function SequencesPage() {
     if (error) {
       alert('Error creating sequence: ' + error.message)
     } else if (data) {
+      const newSequence = data[0]
+
+      // Auto-seed the default 3-step dunning sequence from the marketing templates
+      const defaultSteps = DEFAULT_TEMPLATES.map(t => ({
+        sequence_id: newSequence.id,
+        step_number: t.step_number,
+        delay_days: t.delay_days,
+        email_subject: t.email_subject,
+        email_body: t.email_body,
+      }))
+
+      const { error: seedError } = await supabase
+        .from('sequence_steps')
+        .insert(defaultSteps)
+
+      if (seedError) {
+        console.error('Error seeding default steps:', seedError)
+        // Non-fatal: sequence exists, user can add steps manually
+      }
+
       fetchSequences()
-      setSelectedSequence(data[0])
+      setSelectedSequence(newSequence)
     }
   }
 
