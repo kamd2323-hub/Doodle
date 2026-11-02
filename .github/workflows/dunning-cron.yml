@@ -1,0 +1,40 @@
+name: dunning-cron
+
+# Drives Reclaim AI's dunning pass on the live site, which sleeps when idle and
+# therefore cannot rely on its own in-process timer.
+# Runs hourly; the pass itself is idempotent (it only sends reminders whose
+# next_action_at is due, and advances a row only after a successful send).
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # hourly, at :17 UTC (GitHub may delay a few minutes)
+  workflow_dispatch: {}     # manual trigger from the Actions tab
+
+concurrency:
+  group: dunning-cron
+  cancel-in-progress: false
+
+jobs:
+  run-dunning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger the dunning pass
+        env:
+          CRON_SECRET: ${{ secrets.DUNNING_CRON_SECRET }}
+        run: |
+          set -u
+          URL="https://www.getreclaimai.com/api/dunning/run"
+          code=$(curl -sS -o /tmp/dunning.json -w '%{http_code}' \
+            --max-time 120 --retry 3 --retry-delay 15 --retry-all-errors \
+            -X POST "$URL" \
+            -H "x-cron-secret: ${CRON_SECRET}")
+          echo "HTTP ${code}"
+          head -c 2000 /tmp/dunning.json || true
+          echo
+          # 200 = pass ran. 401 = secret mismatch (fix the repo secret).
+          # 405 = endpoint reached but not a POST (should not happen).
+          if [ "${code}" != "200" ]; then
+            echo "::error::dunning pass did not return 200 (got ${code})"
+            exit 1
+          fi
